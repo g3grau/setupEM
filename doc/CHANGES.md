@@ -1,3 +1,25 @@
+# Unreleased — execution Settings tab
+
+- Moved execution controls into a solver-aware Settings tab: openEMS thread count
+  and CPU/GPU selection, Palace MPI/OpenMP/OpenBLAS counts, and existing Elmer MPI
+  process selection.
+- Automatic openEMS threads omit numThreads in exported scripts, preserving the
+  solver's automatic selection/tuning. Null and old zero settings both select it.
+- Explicit Palace counts persist in configs and generated launch scripts; clearing
+  them removes stale assignments while retaining calibration/custom commands.
+  See execution-settings.md for the PALACE_NP launcher contract.
+
+# Unreleased — openEMS target
+
+- Added a technology-independent openEMS FDTD target in Input Files, with optional
+  gds2openEMS dependency, separate FDTD mesh/energy/thread/boundary controls and
+  full S-matrix script export. Preview and preparation do not start the solver.
+- Native configurations retain the selected solver; existing Palace and Elmer
+  settings keep their previous behavior. FEM-only settings are not emitted into
+  openEMS scripts. See openEMS.md for supported scope and limitations.
+- Moved Palace conformality into the main mesh controls; export it even when AMR
+  iterations are zero, since it also affects initial MFEM mesh handling.
+
 # What's New - November 15, 2026 (setupEM 0.18.3)
 
 Needs gds2palace 0.10.7 or newer (`pip install` updates it).

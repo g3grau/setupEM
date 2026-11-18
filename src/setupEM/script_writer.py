@@ -27,6 +27,10 @@ saved_values holds frequencies in GHz, as the settings file does; the script get
 """
 
 import ast
+try:
+    from .execution_settings import PALACE_ENV, palace_script_lines
+except ImportError:
+    from execution_settings import PALACE_ENV, palace_script_lines
 
 from gds2palace import gds_reader, simulation_setup
 
@@ -208,10 +212,13 @@ def em_script_text(saved_values, simulation_ports, elmer_mode, for_export=False,
     special_keylist = ['simulation_ports', 'materials_list', 'dielectrics_list', 'metals_list',
                        'layernumbers', 'allpolygons']
     # keys not written to the script; fdump_enabled is a GUI-only toggle (Elmer mode), never a gds2palace setting
-    ignore_list = ['model_basename', 'sim_path', 'fdump_enabled']
+    ignore_list = ['model_basename', 'sim_path', 'fdump_enabled',
+                   'numThreads', 'openems_engine', 'openems_boundaries', 'energy_limit', 'numfreq',
+                   ]
     if palace_mode:
         ignore_list.append('iterative')
     else:
+        ignore_list.extend(PALACE_ENV)
         # Elmer mode shows a plain on/off checkbox (fdump_enabled) instead of Palace's per-frequency fdump list, so a
         # stale Palace-mode list from earlier in the same session must not leak into an Elmer script; the
         # synthesized settings['fdump'] line below is written instead when the checkbox is on.
@@ -233,7 +240,7 @@ def em_script_text(saved_values, simulation_ports, elmer_mode, for_export=False,
     if elmer_mode:
         ignore_list.extend(['adaptive_mesh_iterations', 'amr_tol', 'amr_max_dof', 'adaptive_mesh_conformal'])
     elif int(saved_values.get('adaptive_mesh_iterations', 0)) == 0:
-        ignore_list.extend(['amr_tol', 'amr_max_dof', 'adaptive_mesh_conformal'])
+        ignore_list.extend(['amr_tol', 'amr_max_dof'])
 
     # settings grouped by topic; keys not listed here end up in "Other", so a new setting is never silently dropped
     setting_groups = [
@@ -246,6 +253,7 @@ def em_script_text(saved_values, simulation_ports, elmer_mode, for_export=False,
                                       'adaptive_mesh_conformal']),
         ("Simulation boundary", ['boundary', 'margin', 'air_around', 'reference_plane_shift', 'port_wall_extension',
                                  'wall_extension']),
+        ("Execution", list(PALACE_ENV)),
         ("Solver", ['complex_coarse_solve', 'solver_maxits', 'solver_tol', 'iterative', 'ELMER_MPI_THREADS']),
         ("Script control", ['preview_only', 'no_preview']),
     ]
@@ -298,6 +306,7 @@ def em_script_text(saved_values, simulation_ports, elmer_mode, for_export=False,
         lines.append("config_name, data_dir = simulation_setup.create_palace (excite_ports, settings)")
         lines.append("\n# for convenience, write run script to model directory")
         lines.append("utilities.create_run_script(settings['sim_path'])")
+        lines.extend(palace_script_lines(saved_values))
         if for_export:
             _start_simulation(lines, "Palace config.json", "run_sim")
     return "\n".join(lines)

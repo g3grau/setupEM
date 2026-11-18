@@ -160,6 +160,8 @@ def _bundled_stackup(name):
 # GUI key (saved_values) -> names a script may use for it, as settings['name']
 # or as a top-level variable (same aliases as the .py import mapping)
 GUI_KEY_ALIASES = {
+    "openems_boundaries": ("openems_boundaries", "Boundaries"),
+    "openems_engine": ("openems_engine", "engine"),
     "GdsFile": ("GdsFile", "gds_filename"),
     "SubstrateFile": ("SubstrateFile", "XML_filename"),
 }

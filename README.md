@@ -1,3 +1,10 @@
+Runtime thread and MPI controls are in the solver-aware **Settings** tab. See
+[Execution settings](doc/execution-settings.md).
+
+**openEMS FDTD backend:** select the target solver in Input Files to prepare, preview
+and run a model using your own GDS and compatible stackup. See
+[openEMS configuration and limitations](doc/openEMS.md).
+
 # Python GUI for gds2palace 
 
 ![Intro](./doc/png/setupEM_banner.png)

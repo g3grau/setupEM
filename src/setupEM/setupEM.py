@@ -69,6 +69,10 @@ if __package__ in (None, ""):
     from config_update import LAYOUT_KEYS, layout_differences, port_differences, join_path
     from cli_common import add_version_argument, start_file_errors
     from script_writer import em_script_text
+    from openems_writer import openems_script_text
+    import openems_ui
+    from settings_tab import SettingsTab
+    from execution_settings import configure_palace_run_script
 else:
     from .setup_common import (
         EDIT_STYLE_OPTIONAL, EDIT_STYLE_REQUIRED, COMBO_STYLE_REQUIRED, COMBO_STYLE_OPTIONAL,
@@ -89,6 +93,10 @@ else:
     from .config_update import LAYOUT_KEYS, layout_differences, port_differences, join_path
     from .cli_common import add_version_argument, start_file_errors
     from .script_writer import em_script_text
+    from .openems_writer import openems_script_text
+    from . import openems_ui
+    from .settings_tab import SettingsTab
+    from .execution_settings import configure_palace_run_script
 
 
 '''
@@ -1871,7 +1879,7 @@ class MeshTab(QWidget):
         # settings['adaptive_mesh_conformal'], advanced row like the AMR goal/max DOF;
         # the default for new projects comes from Preferences > Palace
         self.amr_conformal_layout = QHBoxLayout()
-        self.label_amr_conformal = QLabel("Conformal AMR (experimental)")
+        self.label_amr_conformal = QLabel("Conformal mesh / refinement")
         self.label_amr_conformal.setFixedWidth(label_width)
         self._mesh_labels.append(self.label_amr_conformal)
         self.amr_conformal_layout.addWidget(self.label_amr_conformal)
@@ -1886,10 +1894,11 @@ class MeshTab(QWidget):
             "Yes: conformal refinement. Converged in fewer AMR iterations in the test cases\n"
             "so far (D-band balun: 2 iterations gave about the result of 4 nonconformal ones,\n"
             "in half the time), but the mesh cell count grows faster per iteration.\n"
-            "Only used with Adaptive mesh iterations > 0.")
+            "Also selects the initial MFEM mesh representation when AMR iterations are zero.\n"
+            "Yes writes Nonconformal=false; this does not change Gmsh meshing.")
         self.amr_conformal_layout.addWidget(self.amr_conformal_box)
         self.amr_conformal_layout.addStretch()
-        self.AMR_layout.addLayout(self.amr_conformal_layout)
+        self.mesh_layout.addLayout(self.amr_conformal_layout)
 
         # Palace linear solver: settings['complex_coarse_solve'] (solver_maxits/solver_tol
         # are preferences only). Advanced row, never shown with an older gds2palace that hardcodes these
@@ -1930,7 +1939,7 @@ class MeshTab(QWidget):
             show = (value == "Yes")
             for item in [self.labelAMRgoal1, self.amr_goal_edit,
                          self.labelAMRmaxdof1, self.amr_maxdof_edit, self.amr_ram_note,
-                         self.label_amr_conformal, self.amr_conformal_box]:
+                         ]:
                 item.setVisible(show)
             show_solver = show and bool(PALACE_LINEAR_SOLVER_SETTINGS)
             for item in [self.label_complex_coarse, self.complex_coarse_box]:
@@ -2155,6 +2164,8 @@ class MeshTab(QWidget):
         return float(value or 0.0)
 
     def port_wall_sides(self):
+        if self.MainWindow.OpenEMSMode:
+            return []
         """the box sides set to Port wall"""
         return [side for side, _ in BOX_SIDES if self._box_side_overrides.get(side, {}).get("bc") == PORTWALL]
 
@@ -2208,6 +2219,8 @@ class MeshTab(QWidget):
 
 
     def save_values(self):
+        if self.MainWindow.OpenEMSMode:
+            openems_ui.save(self.MainWindow)
         try:
             value = float(self.refinement_edit.text())
         except Exception:
@@ -2336,6 +2349,7 @@ class MeshTab(QWidget):
 
 
     def load_values(self):
+        openems_ui.load(self.MainWindow)
         app_name = self.MainWindow.APP_NAME
         self.refinement_edit.setText(str(saved_values.get("refined_cellsize", get_preference(app_name, "refined_cellsize", "5"))))
         self._refined_cellsize_override = list(saved_values.get("refined_cellsize_override", []))
@@ -3190,17 +3204,25 @@ class CreateModelTab(CreateModelTabBase):
         if self.MainWindow.result_viewer_window is not None:
             self.MainWindow.result_viewer_window._rescan_files()
 
+    def model_launch_args(self, filename):
+        if self.MainWindow.OpenEMSMode:
+            if getattr(self, '_openems_run_requested', False):
+                return [filename]
+            return [filename, '--preview-only' if saved_values.get('preview_only') else '--prepare-only']
+        return super().model_launch_args(filename)
+
     def create_model(self):
         # Request all tabs to save values again,
         # which can do some update to saved_values
-        self.MainWindow.save_all_tabs()
+        if not self.MainWindow.save_all_tabs():
+            return
 
         # with a port wall, check the wall ports before writing anything (reads the layout, no meshing);
         # without one this costs nothing
-        if not self.MainWindow.ports_tab.check_port_walls(ask=True, only_with_port_walls=True):
+        if not self.MainWindow.OpenEMSMode and not self.MainWindow.ports_tab.check_port_walls(ask=True, only_with_port_walls=True):
             return
 
-        if simulation_ports.portcount > 0 or saved_values['preview_only']:
+        if simulation_ports.portcount > 0 or saved_values.get('preview_only', False):
             # save settings on this page to internal data structure
             self.save_values()
             # clear log
@@ -3373,6 +3395,15 @@ class CreateModelTab(CreateModelTabBase):
         return True
 
     def run_model(self):
+        self.MainWindow.settings_tab.save_values()
+        if self.MainWindow.OpenEMSMode:
+            self._openems_run_requested = True
+            try:
+                self.create_model()
+                self._process_purpose = 'run_simulation'
+            finally:
+                self._openems_run_requested = False
+            return
         # Run model that we created before
 
         if self.MainWindow.PalaceMode:
@@ -3385,6 +3416,11 @@ class CreateModelTab(CreateModelTabBase):
         # _check_*/_check_wsl_* helpers for the shared checking logic ----------
         if self.MainWindow.PalaceMode:
             if self._check_run_script_ready(run_path, "run_sim") is None:
+                return
+            try:
+                configure_palace_run_script(os.path.join(run_path, 'run_sim'), saved_values)
+            except (ValueError, OSError) as error:
+                self.log_area.appendPlainText(f'Cannot configure Palace parallel options: {error}')
                 return
             if os.name == "nt":
                 if not self._check_wsl_ready():
@@ -3534,6 +3570,14 @@ class ModelEditorTab(QWidget):
         """The model script from the tabs' values into the Code tab (script_writer.py writes it).
         This can look different from an imported Python model script."""
         self.MainWindow.save_all_tabs()
+        if self.MainWindow.OpenEMSMode:
+            try:
+                text = openems_script_text(saved_values, simulation_ports)
+            except (ValueError, TypeError) as error:
+                QMessageBox.warning(self, 'openEMS export', str(error))
+                text = ''
+            self.model_edit.setPlainText(text)
+            return
         self.model_edit.setPlainText(em_script_text(saved_values, simulation_ports, self.MainWindow.ElmerMode,
                                                     for_export=forExport, app_name=APP_NAME))
 
@@ -3959,6 +4003,7 @@ class MainWindow(MainWindowBase):
 
         self.PalaceMode = True
         self.ElmerMode = False
+        self.OpenEMSMode = False
 
         Title = APP_NAME
 
@@ -3987,6 +4032,7 @@ class MainWindow(MainWindowBase):
         self.frequencies_tab = FrequenciesTab(self)
         self.ports_tab = PortsTab(self)
         self.mesh_tab = MeshTab(self)
+        self.settings_tab = SettingsTab(self)
         self.create_model_tab = CreateModelTab(self)
         self.modeleditor_tab = ModelEditorTab(self)
 
@@ -3995,6 +4041,7 @@ class MainWindow(MainWindowBase):
         self.tabs_widget.addTab(self.frequencies_tab, "Frequencies")
         self.tabs_widget.addTab(self.ports_tab, "Ports")
         self.tabs_widget.addTab(self.mesh_tab, "Mesh and Boundaries")
+        self.tabs_widget.addTab(self.settings_tab, "Settings")
         self.tabs_widget.addTab(self.create_model_tab, "Create Model")
         self.tabs_widget.addTab(self.modeleditor_tab, "Code")
 
@@ -4002,6 +4049,8 @@ class MainWindow(MainWindowBase):
         self._previous_index = 0
         self.tabs_widget.currentChanged.connect(self.on_tab_change)
         main_layout.addWidget(self.tabs_widget)
+
+        openems_ui.install(self)
 
         # Stackup data from XML, used when showing stackup viewer
         self.materials_list = None
@@ -4018,6 +4067,7 @@ class MainWindow(MainWindowBase):
 
         # Load all saved data into tabs
         self.load_all_tabs()
+        openems_ui.update(self)
 
         # size, position and the Ports tab's divider of the last session
         self._restore_window_layout()
@@ -4031,8 +4081,8 @@ class MainWindow(MainWindowBase):
         self.optionPalace = QAction("Palace FEM", self, checkable=True)
         self.optionElmer  = QAction("Elmer FEM", self, checkable=True)
 
-        self.optionPalace.triggered.connect(lambda: self.setPalaceMode())
-        self.optionElmer.triggered.connect(lambda: self.setElmerMode())
+        self.optionPalace.triggered.connect(lambda: openems_ui.select(self, "palace"))
+        self.optionElmer.triggered.connect(lambda: openems_ui.select(self, "elmer"))
 
         simulator_group.addAction(self.optionPalace)
         simulator_group.addAction(self.optionElmer)
@@ -4064,6 +4114,7 @@ class MainWindow(MainWindowBase):
         self.optionPalace.setChecked(True)
         self.PalaceMode = True
         self.ElmerMode  = False
+        self.OpenEMSMode = False
         self.setWindowTitle(APP_NAME + ' Palace')
         self.frequencies_tab.dump_group.setVisible(True)
         self.frequencies_tab.dump_group.setTitle("Optional list of fixed frequencies creating field dump data for visualization (Paraview files))")
@@ -4079,12 +4130,14 @@ class MainWindow(MainWindowBase):
 
         # update mesh settings that are not always visible
         self.mesh_tab.on_meshorder_changed(self.mesh_tab.mesh_order_box.currentText())
+        openems_ui.update(self)
 
 
     def setElmerMode(self):
         self.optionElmer.setChecked(True)
         self.PalaceMode = False
         self.ElmerMode  = True
+        self.OpenEMSMode = False
         self.setWindowTitle(APP_NAME + ' Elmer')
         # Elmer has no per-sample SaveStep like Palace - any fdump value turns on
         # field-dump output at every solved frequency, so it shows a plain on/off
@@ -4103,7 +4156,19 @@ class MainWindow(MainWindowBase):
 
         # update mesh settings that are not always visible
         self.mesh_tab.on_meshorder_changed(self.mesh_tab.mesh_order_box.currentText())
+        openems_ui.update(self)
 
+
+    def setOpenEMSMode(self):
+        self.PalaceMode = False
+        self.ElmerMode = False
+        self.OpenEMSMode = True
+        self.optionPalace.setChecked(False)
+        self.optionElmer.setChecked(False)
+        self.setWindowTitle(APP_NAME + ' openEMS')
+        self.file_tab.show_fill_factor_correction()
+        self.create_model_tab.apply_preference_visibility()
+        openems_ui.update(self)
 
     def open_result_viewer(self):
         # local import: matplotlib/skrf are only needed once the viewer is actually
@@ -4161,7 +4226,9 @@ class MainWindow(MainWindowBase):
         # update ports, they are separate from the other internal data
         self.ports_tab.update_port_from_import(data.get("ports", []))
         # restore simulator mode (not part of saved_values, see native_config_extra_struct)
-        if data.get("elmer_mode", False):
+        if data.get("solver") == "openems":
+            self.setOpenEMSMode()
+        elif data.get("elmer_mode", False):
             self.setElmerMode()
         else:
             self.setPalaceMode()
@@ -4202,13 +4269,18 @@ class MainWindow(MainWindowBase):
             text = f.read()
         elmer_call = re.search(r'create_elmer\s*\(', text)
         elmer_flag = re.search(r'settings\s*\[\s*[\'"]elmer[\'"]\s*\]\s*=\s*True\b', text, re.IGNORECASE)
-        if elmer_call or elmer_flag:
+        if re.search(r"\b(?:from|import)\s+gds2openEMS\b", text):
+            self.setOpenEMSMode()
+        elif elmer_call or elmer_flag:
             self.setElmerMode()
         else:
             self.setPalaceMode()
 
     def native_config_extra_struct(self):
-        return {"ports": simulation_ports_to_struct(simulation_ports), "elmer_mode": self.ElmerMode}
+        data = {"ports": simulation_ports_to_struct(simulation_ports), "elmer_mode": self.ElmerMode}
+        if self.OpenEMSMode:
+            data["solver"] = "openems"
+        return data
 
     # ---------- Preserve mode hooks (see MainWindowBase) ----------
     PRESERVE_TOOLS = ("palace", "elmer")
@@ -4420,12 +4492,13 @@ def parse_python_ports_definitions (file_path):
 def parse_arguments(argv=None):
     """The command line. Read before Qt starts, so that --help, --version and a wrong argument need no display;
     a file that cannot be opened ends here with a message on stderr and exit code 2."""
-    parser = argparse.ArgumentParser(prog=APP_NAME, description="Set up Palace and Elmer EM models with gds2palace")
+    parser = argparse.ArgumentParser(prog=APP_NAME, description="Set up Palace, Elmer and openEMS electromagnetic models")
     parser.add_argument("-gdsfile",  type=str, default = '', help="GDSII file to read")
     parser.add_argument("-xmlfile",  type=str, default = '', help="XML stackup file to read")
     parser.add_argument("-simcfg",   type=str, default = '', help="*.simcfg file that is loaded prior to reading files")
     # Optional argument --elmer to enable menu with solver choices
     parser.add_argument("--elmer",   action="store_true", help="Set Elmer as default simulator")
+    parser.add_argument('--openems', action='store_true', help='Set openEMS FDTD as default simulator')
     choice = parser.add_mutually_exclusive_group()
     choice.add_argument("--continue-with-script", dest="script_choice", action="store_const", const="script",
                         help="with -simcfg: if the settings file is linked to a model script (Create Model wrote "
@@ -4461,7 +4534,9 @@ def open_main_window(args):
     if args.gdsfile !=  '':
         win.file_tab.set_gds_file(args.gdsfile)
 
-    if args.elmer:
+    if getattr(args, "openems", False):
+        win.setOpenEMSMode()
+    elif args.elmer:
         # start in Elmer mode (instead of default choice Palace)
         win.setElmerMode()
     elif args.simcfg == '':

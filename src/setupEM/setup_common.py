@@ -424,19 +424,9 @@ def collect_module_level_constants(file_path):
 
 
 def is_openems_model_script(file_path):
-    # Detect whether an imported .py model script is an openEMS model rather than a
-    # gds2palace/Palace/Elmer one. setupEM/setupThermal can only ever GENERATE
-    # Palace/Elmer model scripts via "Create Model" - there is no way to write an
-    # openEMS model back out, and can't edit one in place (see _in_place_problem());
-    # its settings can only be used for a new model, written next to it as
-    # <script>_new.py while the openEMS script itself is protected from being
-    # overwritten (protected_source_model_path).
-    #
-    # openEMS models import the openEMS/CSXCAD Python bindings directly
-    # ("from openEMS import openEMS", "import CSXCAD") - markers that never appear in
-    # a gds2palace-based script (which does "from gds2palace import *" instead), so
-    # this is a reliable, low-false-positive textual check, in the same spirit as the
-    # existing Elmer-vs-Palace source-text detection in apply_python_import_data().
+    # openEMS scripts can be imported into the shared UI and exported as new models.
+    # They are not patched in place: their FDTD run/postprocessing structure differs
+    # from the FEM create_model() workflow, so keep the original script protected.
     try:
         text = pathlib.Path(file_path).read_text()
     except (OSError, UnicodeDecodeError):
@@ -1114,6 +1104,8 @@ class FileInputTab(QWidget):
 
     def _current_solver(self):
         """"palace"/"elmer" in setupEM (depending on mode), "elmer_thermal" in setupThermal."""
+        if getattr(self.MainWindow, "OpenEMSMode", False):
+            return "openems"
         if hasattr(self.MainWindow, "PalaceMode"):
             return "palace" if self.MainWindow.PalaceMode else "elmer"
         return "elmer_thermal"
@@ -1125,7 +1117,7 @@ class FileInputTab(QWidget):
     def show_fill_factor_correction(self):
         """Show the via fill factor correction row only if the installed gds2palace supports
         settings['fill_factor_correction'] for the current solver."""
-        visible = self._current_solver() in FILL_FACTOR_CORRECTION_SOLVERS
+        visible = self._current_solver() == "openems" or self._current_solver() in FILL_FACTOR_CORRECTION_SOLVERS
         self.fill_factor_label1.setVisible(visible)
         self.fill_factor_box.setVisible(visible)
         self.fill_factor_label2.setVisible(visible)
@@ -4732,7 +4724,7 @@ class MainWindowBase(QMainWindow):
         # set by load_configuration_from_file() when the imported *.py model script
         # is detected as an openEMS model (see is_openems_model_script()) - create_model()
         # in setupEM.py/setupThermal.py refuses to write its generated Palace/Elmer
-        # code to this exact path, since setupEM can never regenerate an openEMS
+        # code to this exact path, while setupEM imports, rather than edits in place, an openEMS
         # script. Cleared/reset on every import (of either kind), not just set once.
         self.protected_source_model_path = None
         self.backup_before_overwrite = None
@@ -5268,6 +5260,14 @@ class MainWindowBase(QMainWindow):
                     "refined_cellsize_override": "refined_cellsize_override",
                     "cells_per_wavelength": "cells_per_wavelength",
                     "meshsize_max": "meshsize_max",
+                    "palace_mpi_processes": "palace_mpi_processes",
+                    "palace_omp_threads": "palace_omp_threads",
+                    "palace_blas_threads": "palace_blas_threads",
+                    "numfreq": "numfreq",
+                    "numThreads": "numThreads",
+                    "energy_limit": "energy_limit",
+                    "Boundaries": "openems_boundaries",
+                    "engine": "openems_engine",
                     "adaptive_mesh_iterations": "adaptive_mesh_iterations",
                     "amr_tol": "amr_tol",
                     "amr_max_dof": "amr_max_dof",
@@ -5475,8 +5475,8 @@ class MainWindowBase(QMainWindow):
                 self.create_model_tab._reset_live_status()
                 log_lines = [status + "."]
                 if is_openems_import:
-                    log_lines.append("It is an openEMS script: setupEM writes a new Palace/Elmer model "
-                                     "from its settings, the openEMS script is not changed.")
+                    log_lines.append("It is an openEMS script: setupEM writes a new model from its settings; "
+                                     "the original script is not changed.")
                 if not in_place:
                     output = f"{saved_values['model_basename']}.py"
                     if output == name:
@@ -5931,7 +5931,7 @@ class MainWindowBase(QMainWindow):
         except (ValueError, OSError, UnicodeDecodeError) as e:
             return f"it can't be read ({e})"
         if model.tool == "openems":
-            return "it is an openEMS model, setupEM edits gds2palace (Palace / Elmer) models"
+            return "openEMS models can be imported as new models; editing their FDTD workflow in place is not supported"
         if len(model.create_calls) > 1:
             return ("it builds several models (e.g. thermal and EM), editing such a script "
                     "in place is not supported yet")
@@ -6610,7 +6610,10 @@ class MainWindowBase(QMainWindow):
             captured_stdout = io.StringIO()
             try:
                 with contextlib.redirect_stdout(captured_stdout):
-                    materials_list, dielectrics_list, metals_list = stackup_reader.read_substrate(
+                    reader = stackup_reader
+                    if getattr(self, 'OpenEMSMode', False):
+                        from gds2openEMS import stackup_reader as reader
+                    materials_list, dielectrics_list, metals_list = reader.read_substrate(
                         filename, variable_overrides=self.saved_values.get("variable_overrides"))
             except (Exception, SystemExit) as e:
                 # SystemExit is caught deliberately (not just Exception): the reader

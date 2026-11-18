@@ -30,6 +30,7 @@ requires-python = ">=3.9"
 
 [project.optional-dependencies]
 test = ["pytest"]
+openems = ["gds2openEMS>=0.7.0"]
 
 [project.urls]
 Homepage = "https://github.com/VolkerMuehlhaus/setupEM"
