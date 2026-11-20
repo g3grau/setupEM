@@ -64,7 +64,15 @@ def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_pat
         def GetCSX(self): return CSX()
     def sij(i, j, f, *args):
         calls['sij'].append((i,j));return [0j]*len(f)
-    def snp(*args, **kwargs):calls['snp'] += 1
+    def snp(*args, **kwargs):
+        calls['snp'] += 1
+        assert kwargs['provenance']['result_kind']=='raw'
+    def provenance(settings, sources=None, generator=None, result_kind='raw'):
+        if sources is not None:
+            assert sources['gds']=='input.gds' and sources['stackup']=='stack.xml'
+            assert generator['name']=='setupEM' and generator['exporter_sha256']
+            calls['provenance_captured']=True
+        return {'result_kind':result_kind}
     fake = types.ModuleType('gds2openEMS')
     fake.stackup_reader = types.SimpleNamespace(read_substrate=lambda *a, **k: (
         object(), types.SimpleNamespace(get_boundary_layers=lambda: []), types.SimpleNamespace(getlayernumbers=lambda: [1,2])))
@@ -73,7 +81,7 @@ def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_pat
         simulation_port=lambda **kw: types.SimpleNamespace(**kw), setupSimulation=setup, runSimulation=simulate)
     fake.utilities = types.SimpleNamespace(get_basename=lambda f: 'model',
         create_sim_path=lambda *a: str(tmp_path), get_excitation_path=lambda p,e: str(tmp_path/str(e)),
-        calculate_Sij=sij, write_snp=snp)
+        calculate_Sij=sij, write_snp=snp, touchstone_provenance=provenance)
     monkeypatch.setitem(sys.modules, 'gds2openEMS', fake)
     monkeypatch.setitem(sys.modules, 'openEMS', types.SimpleNamespace(openEMS=FDTD))
     model = tmp_path/'model.py';model.write_text(openems_script_text(values(), ports()))
@@ -81,6 +89,7 @@ def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_pat
     monkeypatch.chdir(tmp_path)
     runpy.run_path(str(model), run_name='__main__')
     assert calls['solves'] == solves
+    assert calls['provenance_captured']
     assert calls['xmls'] == xmls
     assert calls['previews'] == (1 if action == '--preview-only' else 0)
     assert calls['snp'] == (0 if action else 1)

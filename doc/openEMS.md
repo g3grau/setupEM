@@ -88,3 +88,27 @@ independently of the AMR iteration count. Yes exports
 not Gmsh's initial mesh. It cannot repair collapsed elements in a .msh file.
 
 See [Execution settings](execution-settings.md) for automatic thread selection and MPI/OpenMP controls.
+
+## Touchstone provenance
+
+New setupEM-generated openEMS scripts capture the GDS, stackup XML, generated
+model script and companion simcfg paths and SHA-256 hashes before reading inputs
+or launching solvers. The local gds2openEMS metadata-capable writer is required.
+
+Standard `!` comments inside exported Touchstone files carry this snapshot,
+setupEM/openEMS/CSXCAD/gds2openEMS versions, modified backend source hashes, Python
+environment, input ports, cell/datatype selection and stackup overrides. They
+also record effective mesh/boundary settings, requested engine/thread count,
+configured energy threshold, and the actual exported frequency grid and port
+reference impedances. These settings do not prove convergence or native engine
+selection.
+
+Raw results, calibration standards and calibrated results are labeled separately.
+Calibrated headers include the method, reference-plane shifts, standard profiles,
+estimated band limits, warnings and hashes of the raw/standard networks. Standard
+headers include their own length/profile and retain the original input snapshot.
+
+Regenerate model scripts to enable this on subsequent exports. Existing result
+files are not retroactively altered, and missing inputs are reported explicitly
+rather than assigned guessed hashes. The numeric payload and Touchstone reference
+impedances are unchanged by the comments.

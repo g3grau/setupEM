@@ -1,5 +1,12 @@
 """Technology-independent openEMS model export; no solver bindings required to export."""
 import math
+import hashlib
+from pathlib import Path
+
+if __package__ in (None, ''):
+    from cli_common import package_version
+else:
+    from .cli_common import package_version
 
 BOUNDARIES = ('PEC', 'PMC', 'MUR', 'PML_8')
 
@@ -114,6 +121,17 @@ settings['no_gui'] = not args.preview_only
 simulation_ports = simulation_setup.all_simulation_ports()
 '''
     text += '\n'.join(port_lines) + '\n'
+    generator = dict(name='setupEM', version=package_version(),
+                     exporter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+    input_selection = dict(variable_overrides=v.get('variable_overrides', {}), cellname=v.get('cellname', ''),
+                           purpose='all' if v.get('purpose', list(range(65536))) == list(range(65536)) else v['purpose'])
+    text += f'''\nsettings['simulation_ports'] = simulation_ports
+settings['_touchstone_provenance'] = utilities.touchstone_provenance(
+    dict(settings, **{input_selection!r}), sources={{'gds': gds_filename, 'stackup': XML_filename,
+                       'model_script': os.path.abspath(__file__),
+                       'configuration': os.path.splitext(os.path.abspath(__file__))[0] + '.simcfg'}},
+    generator={generator!r})
+'''
     text += f'''
 materials_list, dielectrics_list, metals_list = stackup_reader.read_substrate(
     XML_filename, variable_overrides={v.get('variable_overrides', {})!r})
@@ -185,7 +203,8 @@ if not args.preview_only and not args.prepare_only:
         for j in range(1, n + 1):
             s[i-1, j-1] = utilities.calculate_Sij(i, j, f, sim_path, simulation_ports)
     snp = os.path.join(sim_path, model_basename + '.s' + str(n) + 'p')
-    utilities.write_snp(s, f, snp, z0=simulation_ports.get_reference_impedance())
+    provenance = utilities.touchstone_provenance(settings, result_kind='raw')
+    utilities.write_snp(s, f, snp, z0=simulation_ports.get_reference_impedance(), provenance=provenance)
     print('S-parameters:', snp, flush=True)
 '''
     return text
