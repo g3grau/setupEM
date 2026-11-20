@@ -593,6 +593,10 @@ class PortsTab(QWidget):
 
 
         self.buttons_layout = QHBoxLayout()
+        self.show_layout_button = QPushButton("Show layout ↗")
+        self.show_layout_button.clicked.connect(self.MainWindow.open_layout_preview)
+        self.buttons_layout.addWidget(self.show_layout_button)
+        self.buttons_layout.addStretch()
 
         button_width = 100
 
@@ -612,7 +616,7 @@ class PortsTab(QWidget):
         self.remove_button.setFixedWidth(button_width)
         self.remove_button.clicked.connect(self.remove_port_values_from_table)
 
-        self.details_layout.addLayout(self.buttons_layout)
+        self.bottom_layout.insertLayout(0, self.buttons_layout)
 
         self.top_layout.addLayout(self.details_layout)
 
@@ -799,6 +803,7 @@ class PortsTab(QWidget):
                 # self.portslist.setItem(selected_row, col, QTableWidgetItem(str(value)))
                 self.portslist.setItem(selected_row, col, None)
             self.portslist.setItem(selected_row, 7, None)  # clear any "(missing in layout)" note too
+            self.refresh_missing_layer_annotations()
 
 
     def portslist_selection_changed(self):
@@ -868,6 +873,19 @@ class PortsTab(QWidget):
         layer_min, layer_max = self._port_layer_range()
         gds_layers = self.MainWindow.get_gds_layers_in_range(layer_min, layer_max)
         update_missing_layer_column(self.portslist, source_col=2, comment_col=7, gds_layers_present=gds_layers)
+        if __package__ in (None, ''):
+            from pin_preparation import names_for_gds
+        else:
+            from .pin_preparation import names_for_gds
+        names=names_for_gds(self.MainWindow.file_tab.gds_file_edit.text())
+        for row in range(self.portslist.rowCount()):
+            item=self.portslist.item(row,2)
+            try:name=names.get(int(item.text()),'') if item is not None else ''
+            except ValueError:name=''
+            self.portslist.setVerticalHeaderItem(row,QTableWidgetItem(f'{row+1} · {name}' if name else str(row+1)))
+
+        if hasattr(self.MainWindow, "openems_boxwall_group"):
+            openems_ui.refresh_port_overview(self.MainWindow)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -928,6 +946,9 @@ class PortsTab(QWidget):
         self.refresh_port_wall_rows()
 
     def refresh_port_wall_rows(self):
+        if getattr(self.MainWindow, 'OpenEMSMode', False):
+            self.portwall_group.hide()
+            return
         """one row per port wall, with the result of the last check"""
         if util_calibration is None:
             return
@@ -1352,6 +1373,7 @@ class PortsTab(QWidget):
 
         self.portslist.selectRow(1)
         self.portslist.selectRow(0)
+        self.refresh_missing_layer_annotations()
 
 
 
@@ -4381,7 +4403,14 @@ class MainWindow(MainWindowBase):
         # so the preview reflects unsaved edits without requiring a tab switch
         self.ports_tab.save_values()
         markers = simulation_ports_to_struct(simulation_ports)
+        if __package__ in (None, ''):
+            from pin_preparation import names_for_gds
+        else:
+            from .pin_preparation import names_for_gds
+        names=names_for_gds(self.file_tab.gds_file_edit.text())
+
         for marker in markers:
+            marker["name"] = names.get(int(marker["source_layernum"]), "")
             marker["kind"] = "port"
             marker["group"] = "Ports"
         return markers

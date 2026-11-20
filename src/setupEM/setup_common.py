@@ -719,6 +719,12 @@ class FileInputTab(QWidget):
         self.cellname_layout.addWidget(self.show_layout_btn)
         self.gds_layout.addLayout(self.cellname_layout)
 
+        if hasattr(self.MainWindow, 'get_layout_preview_markers') and self.MainWindow.APP_NAME == 'setupEM':
+            self.prepare_ports_btn = QPushButton('Prepare named EM ports…')
+            self.prepare_ports_btn.setToolTip('Copy original pin shapes to unused marker layers and retain net names in an _ems.gds and manifest.')
+            self.prepare_ports_btn.clicked.connect(self.open_prepare_ports)
+            self.gds_layout.addWidget(self.prepare_ports_btn)
+
         self.purpose_layout = QHBoxLayout()
         self.purpose_label1 = QLabel("Read this datatype (purpose):  ")
         self.purpose_label1.setFixedWidth(left_label_width)
@@ -915,6 +921,13 @@ class FileInputTab(QWidget):
                 self.cellname_box.addItem(cellname)
             return True
         return False
+
+    def open_prepare_ports(self):
+        if __package__ in (None, ''):
+            from prepare_ports_dialog import open_dialog
+        else:
+            from .prepare_ports_dialog import open_dialog
+        open_dialog(self.MainWindow)
 
     def set_gds_file(self, filename):
         # clear model name and target dir if they were auto-generated from previous model

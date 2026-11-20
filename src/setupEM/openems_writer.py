@@ -42,6 +42,30 @@ def openems_script_text(values, ports):
     merging = float(v.get('merge_polygon_size', 0))
     if not math.isfinite(merging) or merging < 0:
         raise ValueError('Via merging distance must be finite and nonnegative.')
+    boxwall = v.get('openems_boxwall') or None
+    aircut = v.get('openems_aircut') or None
+    if boxwall and aircut:
+        raise ValueError('Use box-wall calibration and RDL air cuts as separate experiments for now.')
+    if boxwall:
+        if boxwall.get('side') not in ('xmin','xmax','ymin','ymax'):
+            raise ValueError('Choose a lateral box-wall side.')
+        for key in ('signal_layer','return_layer'):
+            if not boxwall.get(key):raise ValueError('Choose signal and return layers for box-wall feeds.')
+        if boxwall.get('return_kind') not in ('metal','background'):
+            raise ValueError('Choose a metal patch or conductive background return.')
+        length=float(boxwall.get('feed_length',0));gap=float(boxwall.get('gap',0));width=float(boxwall.get('width',0))
+        if not all(math.isfinite(x) for x in (length,gap,width)) or not 0<gap<length or width<0:
+            raise ValueError('Box-wall feeds require length > gap > 0 and width >= 0 (0 = pin width).')
+        setback=float(boxwall.get('reference_plane_setback',0))
+        if not math.isfinite(setback) or not 0 <= setback < length:
+            raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
+        if any(p.port_Z0!=50 or not p.voltage for p in ports.ports):
+            raise ValueError('Box-wall calibration requires excited 50-ohm ports.')
+    if aircut:
+        if not aircut.get('metal'):raise ValueError('Choose the RDL source metal.')
+        for key in ('valley_height','coating_width'):
+            value=float(aircut.get(key,-1))
+            if not math.isfinite(value) or value<0:raise ValueError('Air-cut dimensions must be finite and nonnegative.')
     port_lines = []
     for port in ports.ports:
         direction = port.direction.lower()
@@ -59,6 +83,8 @@ def openems_script_text(values, ports):
                     merge_polygon_size=float(v.get('merge_polygon_size', 0)),
                     fill_factor_correction=bool(v.get('fill_factor_correction', False)),
                     preview_only=False, no_gui=True)
+    if boxwall:settings['openems_boxwall']=boxwall
+    if aircut:settings['openems_aircut']=aircut
     if threads:
         settings['numThreads'] = threads
     if v.get('openems_engine') == 'gpu':
@@ -94,7 +120,7 @@ materials_list, dielectrics_list, metals_list = stackup_reader.read_substrate(
 layernumbers = metals_list.getlayernumbers()
 layernumbers.extend(simulation_ports.portlayers)
 allpolygons = gds_reader.read_gds(
-    gds_filename, layernumbers, purposelist={v.get('purpose', [0])!r},
+    gds_filename, layernumbers, purposelist={"range(65536)" if v.get('purpose', list(range(65536))) == list(range(65536)) else repr(v['purpose'])},
     cellname={v.get('cellname', '')!r}, metals_list=metals_list,
     gds_boundary_layers=dielectrics_list.get_boundary_layers(),
     merge_polygon_size=settings['merge_polygon_size'])
@@ -103,6 +129,32 @@ settings.update(simulation_ports=simulation_ports, materials_list=materials_list
                 layernumbers=layernumbers, allpolygons=allpolygons,
                 sim_path=sim_path, model_basename=model_basename)
 '''
+    if boxwall or aircut:
+        text += "\nfrom gds2openEMS import util_model_geometry as generated_geometry\n"
+    if boxwall:
+        text += """
+from gds2openEMS import util_boxwall as boxwall
+settings = generated_geometry.add_boxwall_feeds(settings, settings['openems_boxwall'], source_gds=gds_filename)
+feed_config = settings['openems_boxwall']
+setback = float(feed_config.get('reference_plane_setback', 0))
+if not np.isfinite(setback) or not 0 <= setback < float(feed_config['feed_length']):
+    raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
+settings['reference_plane_shift'] = {feed_config['side']: float(feed_config['feed_length']) - setback}
+if setback:
+    print(f'Reference plane moved {setback:g} drawing units toward the wall from the terminal; '
+          'the intervening transition remains part of the device.', flush=True)
+plan = boxwall.prepare(settings)
+if args.preview_only:
+    boxwall.preview(plan)
+else:
+    print(boxwall.run(plan, prepare_only=args.prepare_only))
+raise SystemExit(0)
+"""
+    if aircut:
+        text += """
+settings = generated_geometry.add_rdl_aircut(settings, settings['openems_aircut'])
+print('RDL air-cut geometry:', settings['rdl_aircut_status'], flush=True)
+"""
     text += '''
 # A full S matrix requires all ports to be excited, once per column.
 if not simulation_ports.portcount:

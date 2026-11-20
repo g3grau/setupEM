@@ -1,6 +1,6 @@
 """openEMS-specific controls for the shared setupEM front end."""
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox,
-                               QFormLayout, QLabel, QMessageBox)
+                               QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QTableWidgetItem, QPushButton, QFileDialog)
 try:
     from .openems_writer import BOUNDARIES
 except ImportError:
@@ -51,6 +51,8 @@ def install(window):
     note.setWordWrap(True);form.addRow(note)
     mesh.main_layout.insertWidget(1, mesh.openems_group)
     mesh.openems_group.hide()
+    install_geometry(window)
+
 
 
 def select(window, solver):
@@ -96,6 +98,8 @@ def update(window):
     m.refined_override_btn.setEnabled(not openems)
     layout_visible(m.boundary_layout, not openems)
     window.ports_tab.portwall_group.setVisible(not openems)
+    window.openems_boxwall_group.setVisible(openems)
+    window.openems_aircut_group.setVisible(openems)
     m.AMR_group.setVisible(window.PalaceMode)
     m.Elmer_group.setVisible(window.ElmerMode)
     layout_visible(m.amr_conformal_layout, window.PalaceMode)
@@ -110,6 +114,7 @@ def update(window):
     window.create_model_tab.create_model_btn.setText('Prepare geometry / FDTD mesh (no simulation)' if openems else '⚙️ Create mesh and simulation settings file')
     window.settings_tab.update_solver()
     load(window)
+    refresh_port_overview(window)
 
 
 def load(window):
@@ -120,12 +125,154 @@ def load(window):
     m.openems_threads.setValue(int(v.get('numThreads') or 0))
     m.openems_numfreq.setValue(int(v.get('numfreq', 401)))
     m.openems_engine.setCurrentIndex(1 if v.get('openems_engine') == 'gpu' else 0)
+    load_geometry(window)
     for combo, value in zip(m.openems_bc, v.get('openems_boundaries', ['PEC'] * 6)):
         combo.setCurrentText(value)
 
 
 def save(window):
+    save_geometry(window)
     m, v = window.mesh_tab, window.saved_values
     v.update(energy_limit=m.openems_energy.value(), numThreads=m.openems_threads.value() or None,
              numfreq=m.openems_numfreq.value(), openems_engine=m.openems_engine.currentData(),
              openems_boundaries=[c.currentText() for c in m.openems_bc])
+
+
+
+def install_geometry(w):
+    """Optional generated geometry, isolated from Palace's port-wall controls."""
+    g=QGroupBox('openEMS: calibrated box-wall feeds (experimental)')
+    g.setCheckable(True);g.setChecked(False);w.openems_boxwall_group=g
+    body=QWidget();form=QFormLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
+    body.hide();g.toggled.connect(body.setVisible)
+    w.openems_wall_side=QComboBox();w.openems_wall_side.addItems(['xmax','xmin','ymax','ymin'])
+    w.openems_signal=QComboBox();w.openems_signal.setEditable(True)
+    w.openems_return_kind=QComboBox()
+    w.openems_return_kind.addItem('Individual return strips (same width as signal)','metal')
+    w.openems_return_kind.addItem('Existing conductive backside layer','background')
+    w.openems_return=QComboBox();w.openems_return.setEditable(True)
+    def spin(value,zero=False):
+        x=QDoubleSpinBox();x.setDecimals(4);x.setRange(0 if zero else .001,1e6);x.setValue(value);return x
+    w.openems_feed_length=spin(100)
+    w.openems_feed_gap=spin(1)
+    w.openems_feed_width=spin(0,True);w.openems_feed_width.setSpecialValueText('Use pin width')
+    w.openems_reference_setback=spin(0,True)
+    w.openems_reference_setback.setToolTip('Move the calibrated reference plane outward from the terminal toward the wall. '
+        'The transition between the terminal and this plane remains part of the measured device. '
+        'Use when an existing ground patch extends into the generated feed; do not de-embed across a nonuniform section.')
+    for label,widget in [('Outward wall side',w.openems_wall_side),('Signal metal',w.openems_signal),
+        ('Ground return',w.openems_return_kind),('Return metal / background layer',w.openems_return),
+        ('Uniform feed length (um)',w.openems_feed_length),('Wall gap (um)',w.openems_feed_gap),
+        ('Feed width (um)',w.openems_feed_width),
+        ('Reference plane setback toward wall (um)',w.openems_reference_setback)]:form.addRow(label,widget)
+    note=QLabel('Generates feeds from aligned rectangular terminal markers. GDS does not determine access direction. '
+        'The 3D preview shows the generated device; Prepare also writes calibration standards. Metal returns and backside returns '
+        'are different physical fixtures; calibration does not remove their coupling into the device. '
+        'A deep backside return may limit the valid calibration band. Trial dimensions require review.')
+    note.setWordWrap(True);form.addRow(note)
+    w.ports_tab.main_layout.insertWidget(1,g)
+    g.toggled.connect(lambda _: refresh_layer_choices(w))
+    w.openems_return_kind.currentIndexChanged.connect(lambda _: refresh_layer_choices(w))
+    g.hide()
+    for widget in (w.openems_wall_side,w.openems_signal,w.openems_return,w.openems_return_kind):
+        widget.currentTextChanged.connect(lambda _: refresh_port_overview(w))
+    for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width):
+        widget.valueChanged.connect(lambda _: refresh_port_overview(w))
+    w.openems_boxwall_group.toggled.connect(lambda _: refresh_port_overview(w))
+    g=QGroupBox('RDL passivation: air-valley approximation (experimental)')
+    g.setCheckable(True);g.setChecked(False);w.openems_aircut_group=g
+    body=QWidget();form=QFormLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
+    body.hide();g.toggled.connect(body.setVisible)
+    w.openems_rdl_metal=QComboBox();w.openems_rdl_metal.setEditable(True)
+    w.openems_valley_height=spin(1,True);w.openems_coating_width=spin(.5,True)
+    form.addRow('RDL source metal',w.openems_rdl_metal)
+    form.addRow('Valley coating height above RDL bottom (um)',w.openems_valley_height)
+    form.addRow('Lateral coating width (um)',w.openems_coating_width)
+    note=QLabel('Cuts air outside the grown RDL footprint, from the specified valley height to the existing '
+        'planar dielectric top. Lower layers are unchanged. With no RDL polygons the stack stays planar. '
+        'These are sensitivity parameters, not process data. Inspect the 3D preview and minimum dz. '
+        'This recipe cannot yet be combined with calibrated box-wall feeds.')
+    note.setWordWrap(True);form.addRow(note)
+    w.mesh_tab.main_layout.insertWidget(2,g)
+    g.toggled.connect(lambda _: refresh_layer_choices(w))
+    g.hide()
+
+
+def refresh_layer_choices(w):
+    def fill(combo,names):
+        current=combo.currentText();combo.blockSignals(True);combo.clear();combo.addItem('');combo.addItems(names)
+        if current:combo.setCurrentText(current)
+        combo.blockSignals(False)
+    metals=getattr(w,'metals_list',None)
+    names=[m.name for m in getattr(metals,'metals',[]) if m.is_metal or m.is_sheet]
+    fill(w.openems_signal,names);fill(w.openems_rdl_metal,names)
+    if w.openems_return_kind.currentData()=='metal':returns=names
+    else:
+        materials=getattr(w,'materials_list',None)
+        returns=[]
+        for d in getattr(getattr(w,'dielectrics_list',None),'dielectrics',[]):
+            m=materials.get_by_name(d.material) if materials is not None else None
+            if m is not None and m.sigma>=1e4:returns.append(d.name)
+    fill(w.openems_return,returns)
+
+
+def load_geometry(w):
+    if not hasattr(w,'openems_boxwall_group'):return
+    refresh_layer_choices(w)
+    c=w.saved_values.get('openems_boxwall') or {}
+    w.openems_boxwall_group.setChecked(bool(c))
+    w.openems_wall_side.setCurrentText(c.get('side','xmax'))
+    w.openems_signal.setCurrentText(c.get('signal_layer',''))
+    w.openems_return_kind.setCurrentIndex(1 if c.get('return_kind')=='background' else 0)
+    w.openems_return.setCurrentText(c.get('return_layer',''))
+    w.openems_feed_length.setValue(c.get('feed_length',100));w.openems_feed_gap.setValue(c.get('gap',1))
+    w.openems_feed_width.setValue(c.get('width',0))
+    w.openems_reference_setback.setValue(c.get('reference_plane_setback',0))
+    c=w.saved_values.get('openems_aircut') or {}
+    w.openems_aircut_group.setChecked(bool(c));w.openems_rdl_metal.setCurrentText(c.get('metal',''))
+    w.openems_valley_height.setValue(c.get('valley_height',1));w.openems_coating_width.setValue(c.get('coating_width',.5))
+
+
+def save_geometry(w):
+    if not hasattr(w,'openems_boxwall_group'):return
+    v=w.saved_values
+    if w.openems_boxwall_group.isChecked():
+        v['openems_boxwall']=dict(side=w.openems_wall_side.currentText(),signal_layer=w.openems_signal.currentText(),
+            return_kind=w.openems_return_kind.currentData(),return_layer=w.openems_return.currentText(),
+            feed_length=w.openems_feed_length.value(),gap=w.openems_feed_gap.value(),width=w.openems_feed_width.value())
+        if w.openems_reference_setback.value():
+            v['openems_boxwall']['reference_plane_setback']=w.openems_reference_setback.value()
+    else:v.pop('openems_boxwall',None)
+    if w.openems_aircut_group.isChecked():
+        v['openems_aircut']=dict(metal=w.openems_rdl_metal.currentText(),
+            valley_height=w.openems_valley_height.value(),coating_width=w.openems_coating_width.value())
+    else:v.pop('openems_aircut',None)
+
+
+def refresh_port_overview(w):
+    """Show generated launches without overwriting the saved terminal markers."""
+    if not hasattr(w, 'openems_boxwall_group'): return
+    table=w.ports_tab.portslist
+    active=w.OpenEMSMode and w.openems_boxwall_group.isChecked()
+    if table.columnCount()<14:
+        table.setColumnCount(14)
+        for i,label in enumerate(('Wall / access','Signal metal','Return layer','Feed / shift (um)','Width / wall gap (um)'),9):
+            table.setHorizontalHeaderItem(i,QTableWidgetItem(label))
+            table.horizontalHeader().setSectionResizeMode(i,table.horizontalHeader().ResizeMode.ResizeToContents)
+    table.horizontalHeaderItem(2).setText('Terminal marker layer' if active else 'Source layer')
+    for col in (3,4,5,6,8):table.setColumnHidden(col,active)
+    for col in range(9,14):table.setColumnHidden(col,not active)
+    w.ports_tab.bottom_group.setTitle('Port overview — generated box-wall launches' if active else 'Port overview')
+    w.ports_tab.top_group.setTitle('Terminal marker definitions (converted to wall launches below)' if active else 'Port settings')
+    side=w.openems_wall_side.currentText()
+    code={'xmax':'SWX → −X','xmin':'SW-X → +X','ymax':'SWY → −Y','ymin':'SW-Y → +Y'}[side]
+    width=w.openems_feed_width.value()
+    values=(side+' / '+code,w.openems_signal.currentText(),w.openems_return.currentText(),
+            f'{w.openems_feed_length.value():g}',
+            f'{width:g}' if width else 'pin width')
+    for row in range(table.rowCount()):
+        populated=table.item(row,2) is not None and bool(table.item(row,2).text())
+        for col,value in enumerate(values,9):
+            item=QTableWidgetItem(value + (f' / {w.openems_feed_gap.value():g}' if col==13 else '') if active and populated else '')
+            item.setToolTip('Generated in-plane launch toward device. L/2L coupled-line calibration; feed length is the reference-plane shift. Original marker definitions are retained for editing.')
+            table.setItem(row,col,item)

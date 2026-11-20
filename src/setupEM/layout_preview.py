@@ -1211,7 +1211,10 @@ class LayoutPreviewWindow(QDialog):
             captured_stdout = io.StringIO()
             try:
                 with contextlib.redirect_stdout(captured_stdout):
-                    allpolygons = gds_reader.read_gds(
+                    reader = gds_reader
+                    if getattr(self.MainWindow, "OpenEMSMode", False):
+                        from gds2openEMS import gds_reader as reader
+                    allpolygons = reader.read_gds(
                         gds_path_to_read, layernumbers,
                         cellname=saved_values["cellname"],
                         purposelist=saved_values["purpose"],
@@ -1325,6 +1328,7 @@ class LayoutPreviewWindow(QDialog):
                     if kind == "port":
                         portnumber = marker["portnumber"]
                         label_text = f"P{portnumber}"
+                        if marker.get('name'):label_text += ' · ' + marker['name']
                         tooltip = f"Port {portnumber} [{layernum}] {_signed_direction(marker.get('direction', ''))}"
                         if float(marker.get("voltage", 1)) == 0:
                             tooltip += " (inactive)"
