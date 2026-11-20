@@ -52,6 +52,12 @@ def install(window):
     mesh.main_layout.insertWidget(1, mesh.openems_group)
     mesh.openems_group.hide()
     install_geometry(window)
+    saved_preview=QPushButton('Preview saved openEMS solver geometry…')
+    saved_preview.setToolTip('Open an existing solver XML unchanged. Does not regenerate feeds, mesh or calibration.')
+    saved_preview.clicked.connect(lambda: preview_saved_geometry(window))
+    grid = window.create_model_tab.buttons_grid
+    grid.addWidget(saved_preview, grid.rowCount(), 0, 1, 2)
+    window.openems_saved_preview=saved_preview
 
 
 
@@ -90,6 +96,7 @@ def update(window):
     window.solver_selector.blockSignals(False)
     m, f = window.mesh_tab, window.frequencies_tab
     m.openems_group.setVisible(openems)
+    window.openems_saved_preview.setVisible(openems)
     for layout in (m.meshorder_layout, m.cells_maxsize_layout, m.conductor_model_layout):
         layout_visible(layout, not openems)
     # Conductor presets were already hidden for Elmer.
@@ -276,3 +283,42 @@ def refresh_port_overview(w):
             item=QTableWidgetItem(value + (f' / {w.openems_feed_gap.value():g}' if col==13 else '') if active and populated else '')
             item.setToolTip('Generated in-plane launch toward device. L/2L coupled-line calibration; feed length is the reference-plane shift. Original marker definitions are retained for editing.')
             table.setItem(row,col,item)
+
+
+def saved_geometry_candidates(values):
+    from pathlib import Path
+    name=values.get('model_basename','')
+    if not name:return []
+    bases=[Path(values.get('sim_path') or '.'),Path(values.get('GdsFile') or '.').parent]
+    candidates=[]
+    for base in bases:
+        for root in (base/'output'/(name+'_data'),base/(name+'_data'),base):
+            for path in sorted(root.glob('sub-*/'+name+'.xml')):
+                resolved=path.resolve()
+                if resolved not in candidates:candidates.append(resolved)
+    return candidates
+
+
+def preview_saved_geometry(window):
+    """Read the actual saved solver XML, without rerunning the model script."""
+    from pathlib import Path
+    import xml.etree.ElementTree as ET
+    from PySide6.QtCore import QProcess
+    candidates=saved_geometry_candidates(window.saved_values)
+    if candidates:
+        # Excitations share the physical geometry; use the first by default.
+        filename=str(candidates[0])
+    else:
+        filename,_=QFileDialog.getOpenFileName(window,'Saved openEMS solver geometry',
+            str(Path(window.saved_values.get('GdsFile') or '.').parent),'openEMS geometry (*.xml)')
+    if not filename:return
+    try:
+        if ET.parse(filename).getroot().tag not in ('ContinuousStructure','openEMS'):
+            raise ValueError('Select an openEMS solver XML, not a stackup XML')
+        from CSXCAD import AppCSXCAD_BIN
+        result=QProcess.startDetached(str(AppCSXCAD_BIN),[filename])
+        if not (result[0] if isinstance(result,tuple) else result):
+            raise RuntimeError('Could not start AppCSXCAD')
+        window.create_model_tab.log_area.appendPlainText('Previewing saved solver geometry (unchanged): '+filename)
+    except Exception as error:
+        QMessageBox.warning(window,'Saved geometry preview',str(error))

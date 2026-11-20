@@ -100,3 +100,29 @@ def test_gui_features_roundtrip_and_solver_visibility(monkeypatch):
   assert w.openems_boxwall_group.isChecked()
  finally:
   w._script_dirty=False;w.close();module.saved_values.clear()
+
+
+def test_saved_geometry_preview_does_not_regenerate(tmp_path, monkeypatch):
+ from PySide6.QtWidgets import QApplication
+ from PySide6.QtCore import QProcess
+ from setupEM import setupEM as module,openems_ui
+ app=QApplication.instance() or QApplication([])
+ monkeypatch.setattr(module,'get_preference',lambda app,key,default=None:default)
+ module.saved_values.clear();w=module.MainWindow()
+ try:
+  path=tmp_path/'output'/'device_data'/'sub-1'/'device.xml'
+  path.parent.mkdir(parents=True);path.write_text('<ContinuousStructure/>')
+  original=path.read_bytes()
+  w.saved_values.update(sim_path=str(tmp_path),model_basename='device')
+  calls=[]
+  monkeypatch.setattr(QProcess,'startDetached',lambda program,args:(calls.append((program,args)) or (True,123)))
+  openems_ui.preview_saved_geometry(w)
+  assert calls[0][1]==[str(path)]
+  assert path.read_bytes()==original
+  w.setOpenEMSMode();assert not w.openems_saved_preview.isHidden()
+  grid=w.create_model_tab.buttons_grid
+  index=grid.indexOf(w.openems_saved_preview)
+  assert index>=0 and grid.getItemPosition(index)[0]>grid.getItemPosition(grid.indexOf(w.create_model_tab.create_run_btn))[0]
+  w.setPalaceMode();assert w.openems_saved_preview.isHidden()
+ finally:
+  w._script_dirty=False;w.close();module.saved_values.clear()
