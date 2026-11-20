@@ -3442,6 +3442,12 @@ class CreateModelTab(CreateModelTabBase):
             elmer_hint = "Install Elmer FEM and make sure ElmerSolver is on PATH."
             if self._check_command_on_path("ElmerSolver", elmer_hint) is None:
                 return
+            postprocess_hint = (
+                "Make combine_snp available on PATH before starting setupEM, "
+                "then restart setupEM from that environment."
+            )
+            if self._check_command_on_path("combine_snp", postprocess_hint) is None:
+                return
             if saved_values.get('ELMER_MPI_THREADS', 1) > 1:
                 if os.name == "nt":
                     mpi_hint = (
@@ -3662,7 +3668,7 @@ class PreferencesDialog(QDialog):
         files_form.addLayout(xml_dir_row)
         self._reset_targets.append((self.xml_browse_dir_edit, "xml_browse_directory", "", "text"))
 
-        self.purpose_edit = add_row(files_form, "Default GDS layer purpose", "purpose", "0")
+        self.purpose_edit = add_row(files_form, "Default GDS layer purpose", "purpose", MainWindow.DEFAULT_PURPOSE)
         self.viamerge_edit = add_row(files_form, "Default via array merge distance (µm)", "merge_polygon_size", "0.5")
         # Import from *.py model writes back into the imported script, as setupEM always did
         self.confirm_reuse_checkbox = QCheckBox("When importing a *.py model: ask before writing over it")

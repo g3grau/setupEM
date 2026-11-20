@@ -116,7 +116,7 @@ MAX_RECENT_FILES = 10
 
 # Preferences (File > Preferences...): per-user, per-app defaults for fields
 # that used to be plain hardcoded literals (e.g. FrequenciesTab's fstart/fstop
-# QLineEdit("0")/("50")). Deliberately a separate store from the *.simcfg /
+# QLineEdit("*")/("50")). Deliberately a separate store from the *.simcfg /
 # *.tsimcfg project files - this is about what a brand-new/blank
 # field starts out showing, not a full saved project snapshot. Reuses the
 # same QSettings org/app scope as the recent-files lists above, just under
@@ -485,6 +485,8 @@ def normalize_purpose_list(value, default=(0,)):
     # unparseable input returns the default.
     if isinstance(value, str):
         text = value.strip()
+        if text.lower() in ("*", "all"):
+            return list(range(65536))
         if not text:
             return list(default)
         try:
@@ -723,7 +725,7 @@ class FileInputTab(QWidget):
         self.purpose_edit = QLineEdit("0")
         self.purpose_edit.setStyleSheet(EDIT_STYLE_OPTIONAL)
         self.purpose_edit.setFixedWidth(70)
-        self.purpose_label2 = QLabel(" (comma-separated, default 0)")
+        self.purpose_label2 = QLabel(" (* = all datatypes; or comma-separated)")
         self.purpose_layout.addWidget(self.purpose_label1)
         self.purpose_layout.addWidget(self.purpose_edit)
         self.purpose_layout.addWidget(self.purpose_label2)
@@ -1151,7 +1153,7 @@ class FileInputTab(QWidget):
         purpose_default = get_preference(self.MainWindow.APP_NAME, "purpose", self.MainWindow.DEFAULT_PURPOSE)
         int_list = normalize_purpose_list(saved_values.get("purpose", purpose_default),
                                           default=normalize_purpose_list(purpose_default))
-        self.purpose_edit.setText(', '.join(map(str, int_list)))
+        self.purpose_edit.setText('*' if int_list == list(range(65536)) else ', '.join(map(str, int_list)))
 
         # read_XML(self.XML_file_edit.text()) # safe if invalid filename
 
@@ -4714,7 +4716,7 @@ class MainWindowBase(QMainWindow):
 
     TAB_HEADER_COLORS = ["#FFCDD2", "#C8E6C9", "#BBDEFB", "#FFF9C4", "#D1C4E9"]
     # GDS datatypes read by default (the Preferences can change it); setupThermal adds IHP's Activ.mask (1/20)
-    DEFAULT_PURPOSE = "0"
+    DEFAULT_PURPOSE = "*"
 
     def __init__(self):
         super().__init__()
