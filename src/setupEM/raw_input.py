@@ -9,9 +9,11 @@ from PySide6.QtWidgets import (QGroupBox,QWidget,QVBoxLayout,QHBoxLayout,QFormLa
 try:
     from .raw_preparation import verified_report
     from .datatype_filters import parse_datatypes,format_datatypes
+    from .path_config import browse_start
 except ImportError:
     from raw_preparation import verified_report
     from datatype_filters import parse_datatypes,format_datatypes
+    from path_config import browse_start
 
 
 class RawInputSection(QGroupBox):
@@ -60,7 +62,7 @@ class RawInputSection(QGroupBox):
         QApplication.instance().aboutToQuit.connect(self.shutdown)
 
     def browse_source(self):
-        path,_=QFileDialog.getOpenFileName(self,'Raw Cadence GDS',self.source.text(),'GDSII (*.gds *.GDS);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Raw Cadence GDS',browse_start('gds',self.source.text()),'GDSII (*.gds *.GDS);;All files (*)')
         if path:self.source.setText(path);self.suggest_output()
 
     def suggest_output(self):
@@ -72,7 +74,7 @@ class RawInputSection(QGroupBox):
                 if (source.parent/name).is_file():self.mapfile.setText(str(source.parent/name));break
 
     def browse_map(self):
-        path,_=QFileDialog.getOpenFileName(self,'Cadence stream map',self.mapfile.text(),'All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Cadence stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent)),'All files (*)')
         if path:self.mapfile.setText(path)
 
     def browse_cleaned(self):

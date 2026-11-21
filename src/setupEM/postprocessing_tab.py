@@ -12,11 +12,13 @@ try:
     from .postprocessing_tools import DCExtensionTab,LumpedModelsTab
     from .comparison_tab import ComparisonTab,DEFAULT_PLOT_OPTIONS
     from .plot_window import PlotWindow
+    from .path_config import browse_start
 except ImportError:
     from network_parameters import ExtractionSpec,load_touchstone,extract_parameters,export_parameters
     from postprocessing_tools import DCExtensionTab,LumpedModelsTab
     from comparison_tab import ComparisonTab,DEFAULT_PLOT_OPTIONS
     from plot_window import PlotWindow
+    from path_config import browse_start
 
 
 INDUCTOR_PLOTS=[('L_H','Differential L (nH)',1e9),('R_ohm','Differential R (ohm)',1),('Q','Differential Q',1)]
@@ -125,7 +127,7 @@ class PostprocessingTab(QWidget):
             self.canvas.draw_idle()
 
     def browse(self):
-        path,_=QFileDialog.getOpenFileName(self,'Load Touchstone network',self.files.currentText(),'Touchstone (*.s*p *.S*P);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Load Touchstone network',browse_start('touchstone',self.files.currentText()),'Touchstone (*.s*p *.S*P);;All files (*)')
         if path:self.files.setEditText(path);self.load_file()
 
     def find_current(self):
@@ -301,7 +303,8 @@ class PostprocessingTab(QWidget):
             from .lumped_models import default_repository
         except ImportError:
             from lumped_models import default_repository
-        if model!=dict(repository=default_repository(),tool='inductor_fit',target_GHz=3.,basic=False,spectre=False):
+        if model['repository']==default_repository():model.pop('repository')
+        if model!=dict(tool='inductor_fit',target_GHz=3.,basic=False,spectre=False):
             self.owner.postprocessing_settings['lumped']=model
         plot=self.plot_tab.options()
         if plot!=DEFAULT_PLOT_OPTIONS:self.owner.postprocessing_settings['plot']=plot

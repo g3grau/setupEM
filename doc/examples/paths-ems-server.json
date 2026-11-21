@@ -1,0 +1,15 @@
+{
+  "schema": "setupEM.paths.v1",
+  "directories": {
+    "gds": "/eda/openSource/gds2openEMS/more_examples",
+    "stackup": "/eda/openSource/gds2openEMS/XML_stackup",
+    "touchstone": "/eda/openSource/gds2openEMS/more_examples",
+    "project": "/eda/openSource/gds2openEMS/more_examples",
+    "stream_map": "/eda/openSource/gds2openEMS/more_examples",
+    "output": "/eda/openSource/gds2openEMS/more_examples"
+  },
+  "tools": {
+    "lumpedmodel": "/eda/openSource/lumpedmodel",
+    "broadband_python": "/eda/openSource/setupEM/.tools/snp2le-env/bin/python"
+  }
+}

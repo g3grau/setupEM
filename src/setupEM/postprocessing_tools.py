@@ -11,9 +11,11 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLabe
 try:
     from .dc_extension import extend_dc,export_dc
     from .lumped_models import TOOLS,default_repository,prepare_model_run
+    from .path_config import browse_start
 except ImportError:
     from dc_extension import extend_dc,export_dc
     from lumped_models import TOOLS,default_repository,prepare_model_run
+    from path_config import browse_start
 
 
 class DCExtensionTab(QWidget):
@@ -116,7 +118,7 @@ class LumpedModelsTab(QWidget):
 
     def start(self):
         if self.process and self.process.state()!=QProcess.NotRunning:return
-        default=Path(self.analysis.source['path']).parent if self.analysis.source else Path.cwd()
+        default=browse_start('output',fallback=str(Path(self.analysis.source['path']).parent) if self.analysis.source else '')
         path=QFileDialog.getExistingDirectory(self,'Choose parent for a new model-run folder',str(default))
         if not path:return
         folder=Path(path)/('lumped_'+self.tool.currentData()+'_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f'))

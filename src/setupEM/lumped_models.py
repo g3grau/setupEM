@@ -18,6 +18,12 @@ TOOLS={'inductor_fit':'Wideband inductor (SPICE / Spectre)',
 
 
 def default_repository():
+    try:
+        from .path_config import configured_path
+    except ImportError:
+        from path_config import configured_path
+    configured=configured_path('tools','lumpedmodel')
+    if configured:return configured
     for path in ('/usr/cadtools/lumpedmodel','/local/cadtools/lumpedmodel'):
         if Path(path).is_dir():return path
     return ''

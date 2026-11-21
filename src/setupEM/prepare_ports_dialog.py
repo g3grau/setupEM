@@ -7,8 +7,10 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLine
     QFileDialog,QMessageBox,QHeaderView)
 if __package__ in (None, ''):
     import pin_preparation as pins
+    from path_config import browse_start
 else:
     from . import pin_preparation as pins
+    from .path_config import browse_start
 
 
 class PreparePortsDialog(QDialog):
@@ -52,7 +54,7 @@ class PreparePortsDialog(QDialog):
                 self.mapfile.setText(str(candidate));self.read_map();break
 
     def load_map(self):
-        name,_=QFileDialog.getOpenFileName(self,'Technology stream map',str(Path(self.source.text()).parent),'All files (*)')
+        name,_=QFileDialog.getOpenFileName(self,'Technology stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent)),'All files (*)')
         if name:self.mapfile.setText(name);self.read_map()
 
     def read_map(self):

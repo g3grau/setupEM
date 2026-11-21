@@ -32,6 +32,12 @@ class BroadbandSpec:
 def default_engine_python():
     override=os.environ.get('EMS_BROADBAND_PYTHON')
     if override:return override
+    try:
+        from .path_config import configured_path
+    except ImportError:
+        from path_config import configured_path
+    configured=configured_path('tools','broadband_python')
+    if configured:return configured
     checkout=Path(__file__).resolve().parents[2]
     for candidate in (checkout/'.tools/snp2le-env/bin/python',checkout/'.tools/snp2le-env/Scripts/python.exe'):
         if candidate.is_file():return str(candidate)

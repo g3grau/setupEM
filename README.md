@@ -247,6 +247,12 @@ Result Viewer can also be run standalone, without the full setupEM GUI, either d
 
 ## Raw GDS preparation
 
+Machine-specific browse locations, the lumpedmodel checkout and broadband engine
+Python can be kept in a portable JSON snippet. Import it through
+**File → Preferences → Files → Import path snippet…** or select it with
+`SETUPEM_PATH_CONFIG`. See [Path defaults](doc/path_defaults.md) and the
+[Rocky server example](doc/examples/paths-ems-server.json).
+
 **Input Files → Raw Input** takes a Cadence GDS through stackup-driven fill/cutout
 cleanup and named EM-port preparation. It writes separate cleaned and `_ems.gds`
 files, then selects the prepared layout and ports for simulation. Pin shapes and

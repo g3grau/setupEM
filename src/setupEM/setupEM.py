@@ -3693,10 +3693,10 @@ class PreferencesDialog(QDialog):
         xml_dir_row.addWidget(xml_dir_label)
         self.xml_browse_dir_edit = QLineEdit(str(get_preference(self.app_name, "xml_browse_directory", "")))
         self.xml_browse_dir_edit.setStyleSheet(EDIT_STYLE_OPTIONAL)
-        self.xml_browse_dir_edit.setPlaceholderText("(bundled with setupEM)")
+        self.xml_browse_dir_edit.setPlaceholderText("(path defaults, or bundled with setupEM)")
         self.xml_browse_dir_edit.setToolTip(
             "Folder the XML Stackup File browse dialog starts from. "
-            "Leave empty to use the XML files bundled with setupEM."
+            "Leave empty to use the path snippet's stackup directory, then the XML files bundled with setupEM."
         )
         xml_dir_row.addWidget(self.xml_browse_dir_edit, 1)
         self.xml_browse_dir_btn = QPushButton("Browse ...")
@@ -3704,6 +3704,17 @@ class PreferencesDialog(QDialog):
         xml_dir_row.addWidget(self.xml_browse_dir_btn)
         files_form.addLayout(xml_dir_row)
         self._reset_targets.append((self.xml_browse_dir_edit, "xml_browse_directory", "", "text"))
+
+        if __package__ in (None,''):
+            from path_config import config_path
+        else:
+            from .path_config import config_path
+        snippet_row=QHBoxLayout()
+        snippet_label=QLabel('Path defaults: '+str(config_path()));snippet_label.setWordWrap(True)
+        snippet_row.addWidget(snippet_label,1)
+        self.import_paths_button=QPushButton('Import path snippet…')
+        self.import_paths_button.clicked.connect(self._import_path_snippet);snippet_row.addWidget(self.import_paths_button)
+        files_form.addLayout(snippet_row)
 
         self.purpose_edit = add_row(files_form, "Default GDS layer purpose", "purpose", MainWindow.DEFAULT_PURPOSE)
         self.viamerge_edit = add_row(files_form, "Default via array merge distance (µm)", "merge_polygon_size", "0.5")
@@ -3911,10 +3922,28 @@ class PreferencesDialog(QDialog):
         outer_layout.addWidget(buttons)
 
     def _browse_xml_default_dir(self):
-        start = self.xml_browse_dir_edit.text() or os.path.join(os.path.dirname(__file__), "data")
+        if __package__ in (None,''):
+            from path_config import browse_start
+        else:
+            from .path_config import browse_start
+        start = browse_start('stackup',self.xml_browse_dir_edit.text(),os.path.join(os.path.dirname(__file__), "data"))
         directory = QFileDialog.getExistingDirectory(self, "Select Default XML Folder", start)
         if directory:
             self.xml_browse_dir_edit.setText(directory)
+
+    def _import_path_snippet(self):
+        if __package__ in (None,''):
+            from path_config import install_config,browse_start
+        else:
+            from .path_config import install_config,browse_start
+        filename,_=QFileDialog.getOpenFileName(self,'Import setupEM path defaults',browse_start('project'),'JSON (*.json);;All files (*)')
+        if not filename:return
+        try:
+            destination,backup=install_config(filename)
+            text=f'Path defaults installed at {destination}. New file dialogs use these defaults. Restart setupEM to initialize tool paths from them; explicit project selections keep priority.'
+            if backup:text+='\nPrevious defaults saved at '+str(backup)
+            QMessageBox.information(self,'Path defaults imported',text)
+        except (ValueError,OSError) as error:QMessageBox.warning(self,'Cannot import path defaults',str(error))
 
     def _reset_to_defaults(self):
         confirm = QMessageBox.question(

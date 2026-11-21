@@ -34,8 +34,10 @@ in setupEM.py / setupThermal.py, not here.
 
 if __package__ in (None, ''):
     from datatype_filters import parse_datatypes, format_datatypes
+    from path_config import browse_start,expand_path
 else:
     from .datatype_filters import parse_datatypes, format_datatypes
+    from .path_config import browse_start,expand_path
 
 import sys, os, json, pathlib, ast, webbrowser, io, contextlib, subprocess, shutil, glob, re, copy, tempfile, time
 import importlib.metadata
@@ -889,7 +891,7 @@ class FileInputTab(QWidget):
         if not os.path.isdir(previous_directory):
             previous_directory = ""
 
-        filename, _ = QFileDialog.getOpenFileName(self, "Select GDSII File", previous_directory, "*.gds;;*.*")
+        filename, _ = QFileDialog.getOpenFileName(self, "Select GDSII File", browse_start('gds',previous_directory), "*.gds;;*.*")
         if filename:
             self.set_gds_file(filename)
             self.update_cellnames_from_gds(filename)
@@ -936,14 +938,15 @@ class FileInputTab(QWidget):
             # user-configured default (Preferences > Files), falling back to
             # the XML files bundled with setupEM if unset/invalid
             custom_dir = get_preference(self.MainWindow.APP_NAME, "xml_browse_directory", "")
+            custom_dir = expand_path(custom_dir) if custom_dir else ''
             if custom_dir and os.path.isdir(custom_dir):
                 previous_directory = custom_dir
             else:
                 package_data = os.path.join(os.path.dirname(__file__), "data")
                 if os.path.exists(package_data):
-                    previous_directory = package_data
+                    previous_directory = browse_start('stackup',fallback=package_data)
                 else:
-                    previous_directory = ""
+                    previous_directory = browse_start('stackup')
 
         filename, _ = QFileDialog.getOpenFileName(self, "Select XML Stackup File", previous_directory, "*.xml;;*.*")
         if filename:
@@ -4298,7 +4301,7 @@ class CreateModelTabBase(QWidget):
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Target Directory",
-            "",  # Starting directory ("" = current)
+            browse_start('output',self.targetdir_edit.text()),
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         if directory:
@@ -5085,9 +5088,9 @@ class MainWindowBase(QMainWindow):
         candidates = [getattr(getattr(self, "script_model", None), "path", None),
                       getattr(self, "user_inputs_file", None), self.saved_values.get("GdsFile")]
         for path in candidates:
-            if path and os.path.isdir(os.path.dirname(os.path.abspath(path))):
+            if path and not str(path).startswith('Please choose') and os.path.isdir(os.path.dirname(os.path.abspath(path))):
                 return os.path.dirname(os.path.abspath(path))
-        return ""
+        return browse_start('project')
 
     def load_configuration_dialog(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Config File", self._open_dialog_folder(),
