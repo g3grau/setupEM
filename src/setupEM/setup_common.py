@@ -875,8 +875,14 @@ class FileInputTab(QWidget):
             else:
                 from .raw_input import RawInputSection
             self.raw_input = RawInputSection(self)
-            self.main_layout.insertWidget(0,self.raw_input)
-            self.gds_group.setTitle('Simulation Input — prepared GDSII layout')
+            self.main_layout.removeWidget(self.XML_group)
+            self.main_layout.insertWidget(0,self.XML_group)
+            self.main_layout.insertWidget(1,self.raw_input)
+            self.gds_group.setTitle('Active simulation input — GDS used by the solver')
+            explanation=QLabel('The preparation workflow selects its final GDS here. You can also load an existing simulation-ready GDS directly; no second preparation step is required.')
+            explanation.setWordWrap(True);self.gds_layout.insertWidget(0,explanation)
+            self.show_layout_btn.setText('Show active GDS')
+            self.prepare_ports_btn.hide()
             content=QWidget();content.setLayout(self.main_layout)
             self.input_scroll=QScrollArea();self.input_scroll.setWidgetResizable(True)
             self.input_scroll.setFrameShape(QFrame.NoFrame);self.input_scroll.setWidget(content)
@@ -4874,6 +4880,10 @@ class MainWindowBase(QMainWindow):
         self.simplify_gds_action = QAction("Simplify GDS...", self)
         self.simplify_gds_action.triggered.connect(lambda: self.open_simplify_gds())
         tools_menu.addAction(self.simplify_gds_action)
+        if self.APP_NAME=='setupEM':
+            self.prepare_ports_action=QAction('Prepare named EM ports from active GDS…',self)
+            self.prepare_ports_action.triggered.connect(lambda: self.file_tab.open_prepare_ports())
+            tools_menu.addAction(self.prepare_ports_action)
 
         # one-time, non-blocking heads-up if gds2palace is too old for some features -
         # deferred so it appears after the window itself, not stalling startup

@@ -122,6 +122,18 @@ def names_for_gds(path):
     except (OSError,ValueError,TypeError):return {}
 
 
+def read_prepared_manifest(path):
+    """An existing port-prepared file can be reused without running preparation."""
+    source=Path(path).expanduser().resolve();manifest=source.with_suffix('.ports.json')
+    if not manifest.is_file():return None
+    data=json.loads(manifest.read_text())
+    if data.get('schema')!='setupEM.ports.v1' or not isinstance(data.get('ports'),list):
+        raise ValueError('Unrecognized port manifest: '+str(manifest))
+    if data.get('output_sha256')!=hashlib.sha256(source.read_bytes()).hexdigest():
+        raise ValueError('Port manifest does not match this GDS. Select the matching file or prepare ports again.')
+    return data
+
+
 @lru_cache(maxsize=16)
 def _cached_names(path,stat_key):
     try:

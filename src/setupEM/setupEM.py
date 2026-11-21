@@ -4370,7 +4370,7 @@ class MainWindow(MainWindowBase):
             data['postprocessing'] = dict(self.postprocessing_settings)
         if getattr(self,'broadband_settings',{}):data['broadband']=dict(self.broadband_settings)
         raw=self.file_tab.raw_input.state()
-        if raw.get('source') or raw.get('mapfile') or raw.get('output'):
+        if raw.get('source') or raw.get('mapfile') or raw.get('output') or raw.get('prepared'):
             data['raw_input']=raw
         if self.OpenEMSMode:
             data["solver"] = "openems"

@@ -129,16 +129,34 @@ def open_dialog(window,**options):
     dialog=PreparePortsDialog(window,**options)
     if dialog.exec()!=QDialog.Accepted:return
     data=dialog.result_data
-    window.file_tab.set_gds_file(dialog.output.text())
-    window.file_tab.cellname_box.setCurrentText(data['cell'])
-    window.saved_values['cellname']=data['cell']
+    use_prepared_gds(window,dialog.output.text(),data)
+    return data
+
+
+def use_prepared_gds(window,path,data=None):
+    """Select an existing or just-generated file as the one active solver input."""
+    import gdspy
+    path=Path(path).expanduser().resolve()
+    if not path.is_file():raise ValueError('Prepared GDS file not found: '+str(path))
+    if data is None:data=pins.read_prepared_manifest(path)
+    if data and data.get('output_sha256')!=hashlib.sha256(path.read_bytes()).hexdigest():
+        raise ValueError('Prepared port manifest does not match the selected GDS.')
+    lib=gdspy.GdsLibrary();lib.read_gds(str(path),units='import')
+    if data and data['cell'] not in lib.cells:raise ValueError('Prepared manifest cell is not in this GDS.')
+    if data is None:
+        window.file_tab.set_gds_file(str(path));window.file_tab.cellname_box.setCurrentIndex(0)
+        window.saved_values['cellname']=''
+        window.statusBar().showMessage('Selected existing GDS for simulation. Existing port settings are retained.',15000)
+        return None
     # Include the new datatype 0 markers even with a restricted purpose filter.
-    purposes=window.saved_values.get('purpose',[])
+    purposes=list(window.saved_values.get('purpose',[]))
+    preparation=(data or {}).get('raw_preparation',{})
+    if preparation.get('simulation_drawing_lpps'):
+        purposes=sorted({d for l,d in preparation['simulation_drawing_lpps']}|{0})
     if 0 not in purposes:
-        purposes=[0]+purposes;window.saved_values['purpose']=purposes
-        window.file_tab.purpose_edit.setText(','.join(map(str,purposes)))
-    if hasattr(window,'ports_tab'):
-        ports=[]
+        purposes=[0]+purposes
+    ports=[]
+    if data and hasattr(window,'ports_tab'):
         for p in data['ports']:
             target=''
             metals=getattr(window,'metals_list',None)
@@ -148,6 +166,12 @@ def open_dialog(window,**options):
                 if len(set(candidates))==1:target=candidates[0]
             ports.append(dict(portnumber=p['portnumber'],source_layernum=p['source_layernum'],
                               target_layername=target,direction=''))
+    window.file_tab.set_gds_file(str(path))
+    window.file_tab.cellname_box.setCurrentText(data['cell'] if data else '(default)')
+    window.saved_values['cellname']=data['cell'] if data else ''
+    window.saved_values['purpose']=purposes
+    window.file_tab.purpose_edit.setText(','.join(map(str,purposes)))
+    if data and hasattr(window,'ports_tab'):
         window.ports_tab.update_port_from_import(ports)
         window.ports_tab.refresh_missing_layer_annotations()
     window.statusBar().showMessage('Prepared named ports. Configure port direction and return on the Ports tab.',15000)

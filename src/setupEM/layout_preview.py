@@ -494,7 +494,7 @@ class LayoutPreviewWindow(QDialog):
     # stackup element for those to sync to.
     layerSelected = Signal(object)
 
-    def __init__(self, MainWindow, gds_override_path=None, title_suffix=""):
+    def __init__(self, MainWindow, gds_override_path=None, title_suffix="",preview_settings=None,preview_markers=None,preview_stackup=None,preview_layers=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Layout Preview" + (f" - {title_suffix}" if title_suffix else ""))
@@ -505,6 +505,10 @@ class LayoutPreviewWindow(QDialog):
         # show the simplified output next to the original, both still colored
         # by the (unchanged) stackup XML the MainWindow already has loaded
         self._gds_override_path = gds_override_path
+        self._preview_settings=dict(preview_settings) if preview_settings is not None else None
+        self._preview_markers=preview_markers
+        self._preview_stackup=preview_stackup
+        self._preview_layers=preview_layers
 
         self.canvas = LayoutCanvas()
 
@@ -1165,27 +1169,28 @@ class LayoutPreviewWindow(QDialog):
         # since changed to a path that doesn't exist, since read_XML() silently
         # no-ops on a missing file rather than clearing the old stackup data
         gdsfile = self._gds_override_path or self.MainWindow.file_tab.gds_file_edit.text()
-        xmlfile = self.MainWindow.file_tab.XML_file_edit.text()
+        xmlfile = self._preview_settings.get('SubstrateFile','') if self._preview_settings is not None else self.MainWindow.file_tab.XML_file_edit.text()
         if not os.path.isfile(gdsfile) or not os.path.isfile(xmlfile):
             QMessageBox.warning(self, "Error", "Load a GDSII file and XML stackup first")
             return
 
-        if not self.MainWindow.file_tab.save_values():
+        if self._preview_settings is None and not self.MainWindow.file_tab.save_values():
             return  # save_values() already showed its own warning
 
         metals_list = self.MainWindow.metals_list
         dielectrics_list = self.MainWindow.dielectrics_list
         materials_list = self.MainWindow.materials_list
+        if self._preview_stackup is not None:materials_list,dielectrics_list,metals_list=self._preview_stackup
         if metals_list is None or dielectrics_list is None or materials_list is None:
             # both files exist but read_XML() couldn't parse the stackup - it
             # already showed a detailed QMessageBox.critical with the parse error
             return
 
-        marker_dicts = self.MainWindow.get_layout_preview_markers()
+        marker_dicts = self._preview_markers if self._preview_markers is not None else self.MainWindow.get_layout_preview_markers()
         marker_by_layernum = {int(m["source_layernum"]): m for m in marker_dicts}
 
-        saved_values = self.MainWindow.saved_values
-        layernumbers = metals_list.getlayernumbers()
+        saved_values = self._preview_settings if self._preview_settings is not None else self.MainWindow.saved_values
+        layernumbers = list(self._preview_layers) if self._preview_layers is not None else metals_list.getlayernumbers()
         layernumbers.extend(marker_by_layernum.keys())
 
         gds_path_to_read = self._gds_override_path or saved_values["GdsFile"]
@@ -1495,7 +1500,7 @@ class LayoutPreviewWindow(QDialog):
             self.set_highlighted_layer(self._highlighted_layer_name)
 
             self._box_rect = None
-            self._draw_simulation_box()
+            if self._preview_settings is None:self._draw_simulation_box()
 
             # fit the layout and its box: labels have a fixed size in pixels, and on a small layout they would
             # dominate the bounding rectangle and leave the layout small in a corner

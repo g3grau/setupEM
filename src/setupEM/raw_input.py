@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import sys
 import tempfile
-from PySide6.QtCore import QProcess,QProcessEnvironment
+from PySide6.QtCore import QProcess,QProcessEnvironment,Qt
 from PySide6.QtWidgets import (QGroupBox,QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLineEdit,
     QPushButton,QLabel,QCheckBox,QSpinBox,QPlainTextEdit,QFileDialog,QApplication)
 try:
@@ -19,24 +19,33 @@ except ImportError:
 class RawInputSection(QGroupBox):
     def __init__(self,file_tab):
         super().__init__('Raw Input — Cadence GDS preprocessing',file_tab)
-        self.file_tab=file_tab;self.window=file_tab.MainWindow;self.process=None;self.temporary=None
+        self.file_tab=file_tab;self.window=file_tab.MainWindow;self.process=None;self.temporary=None;self._preview_windows=[]
         layout=QVBoxLayout(self)
-        help=QLabel('Raw GDS → simplified drawing geometry → reviewed EM pins → _ems.gds in the simulation inputs below. '
-                    'Uses the XML stackup below. The chosen design cell is flattened; original files are preserved.')
+        help=QLabel('Preparation workflow: Raw GDS → Cleaned GDS → EM-port GDS. Uses the XML stackup above. '
+                    'Step 2 creates the EM-port file and selects it as the active simulation input below. Show previews a file; Use for simulation selects it.')
         help.setWordWrap(True);layout.addWidget(help)
         self.source=QLineEdit();self.source.setPlaceholderText('Original Cadence GDS export')
         self.mapfile=QLineEdit();self.mapfile.setPlaceholderText('Cadence stream map (used for drawing/pin purposes and port names)')
         self.cleaned=QLineEdit();self.cleaned.setPlaceholderText('Separate cleaned GDS output')
-        for text,edit,callback in [('Raw GDS',self.source,self.browse_source),('Stream map',self.mapfile,self.browse_map),('Cleaned GDS',self.cleaned,self.browse_cleaned)]:
+        self.prepared=QLineEdit();self.prepared.setPlaceholderText('Final _ems.gds, with named EM-port markers')
+        self.preview_buttons={}
+        for text,edit,callback,key in [('Raw GDS',self.source,self.browse_source,'raw'),('Stream map',self.mapfile,self.browse_map,None),('Cleaned GDS',self.cleaned,self.browse_cleaned,'cleaned'),('EM-port GDS',self.prepared,self.browse_prepared,'prepared')]:
             row=QHBoxLayout();label=QLabel(text);label.setMinimumWidth(100);row.addWidget(label);row.addWidget(edit,1)
             button=QPushButton('Browse…');button.clicked.connect(callback);row.addWidget(button);layout.addLayout(row)
+            if key:
+                show=QPushButton('Show');show.clicked.connect(lambda checked=False,k=key:self.preview(k))
+                row.addWidget(show);self.preview_buttons[key]=show
+                edit.textChanged.connect(self.update_file_buttons)
+            if key=='prepared':
+                self.use_button=QPushButton('Use for simulation');self.use_button.clicked.connect(self.use_prepared);row.addWidget(self.use_button)
         self.source.editingFinished.connect(self.suggest_output)
+        self.cleaned.editingFinished.connect(self.suggest_prepared)
         row=QHBoxLayout();layout.addLayout(row)
         self.options_button=QPushButton('Simplification options…');self.options_button.setCheckable(True)
         row.addWidget(self.options_button)
         self.run_button=QPushButton('1. Simplify raw GDS');row.addWidget(self.run_button)
         self.stop_button=QPushButton('Stop');self.stop_button.setEnabled(False);row.addWidget(self.stop_button)
-        self.ports_button=QPushButton('2. Prepare EM ports and use _ems.gds…');row.addWidget(self.ports_button)
+        self.ports_button=QPushButton('2. Create EM-port GDS…');row.addWidget(self.ports_button)
         self.options_widget=QWidget();form=QFormLayout(self.options_widget);self.options_widget.setVisible(False)
         self.cell=QLineEdit();self.cell.setPlaceholderText('Blank = largest design top cell (ignores KLayout context cell)');form.addRow('Raw design cell',self.cell)
         self.drawing=QLineEdit('0');form.addRow('Drawing datatypes (without a stream map)',self.drawing)
@@ -60,6 +69,17 @@ class RawInputSection(QGroupBox):
         self.options_button.toggled.connect(self.options_widget.setVisible)
         self.run_button.clicked.connect(self.run);self.stop_button.clicked.connect(self.stop);self.ports_button.clicked.connect(self.prepare_ports)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
+        self.update_file_buttons()
+
+    def update_file_buttons(self,*args):
+        for key,edit in [('raw',self.source),('cleaned',self.cleaned),('prepared',self.prepared)]:
+            if key in self.preview_buttons:self.preview_buttons[key].setEnabled(Path(edit.text()).expanduser().is_file())
+        if hasattr(self,'use_button'):self.use_button.setEnabled(Path(self.prepared.text()).expanduser().is_file())
+
+    def suggest_prepared(self):
+        if self.source.text() and self.cleaned.text() and (not self.prepared.text() or self.prepared.text()==getattr(self,'_suggested_prepared','')):
+            self._suggested_prepared=str(Path(self.cleaned.text()).with_name(Path(self.source.text()).stem+'_ems.gds'))
+            self.prepared.setText(self._suggested_prepared)
 
     def browse_source(self):
         path,_=QFileDialog.getOpenFileName(self,'Raw Cadence GDS',browse_start('gds',self.source.text()),'GDSII (*.gds *.GDS);;All files (*)')
@@ -72,6 +92,7 @@ class RawInputSection(QGroupBox):
         if source.is_file() and not self.mapfile.text():
             for name in ('stream.map','mapfile','gds.map'):
                 if (source.parent/name).is_file():self.mapfile.setText(str(source.parent/name));break
+        self.suggest_prepared()
 
     def browse_map(self):
         path,_=QFileDialog.getOpenFileName(self,'Cadence stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent)),'All files (*)')
@@ -79,21 +100,70 @@ class RawInputSection(QGroupBox):
 
     def browse_cleaned(self):
         path,_=QFileDialog.getSaveFileName(self,'New cleaned GDS output',self.cleaned.text(),'GDSII (*.gds)')
-        if path:self.cleaned.setText(path)
+        if path:self.cleaned.setText(path);self.suggest_prepared()
+
+    def browse_prepared(self):
+        path,_=QFileDialog.getOpenFileName(self,'Existing port-prepared GDS',browse_start('gds',self.prepared.text()),'GDSII (*.gds *.GDS);;All files (*)')
+        if path:self.prepared.setText(path)
+
+    def use_prepared(self):
+        try:
+            try:
+                from .prepare_ports_dialog import use_prepared_gds
+            except ImportError:
+                from prepare_ports_dialog import use_prepared_gds
+            use_prepared_gds(self.window,self.prepared.text())
+            self.status.setText('Active simulation input selected: '+self.prepared.text()+'. No preparation rerun is needed.')
+        except (OSError,ValueError,KeyError) as error:self.status.setText('Cannot select EM-port GDS: '+str(error))
+
+    def preview(self,stage):
+        try:
+            import gdstk
+            from gds_simplify_for_em import open_gds_cell
+            try:
+                from .layout_preview import LayoutPreviewWindow
+                from .pin_preparation import read_prepared_manifest
+            except ImportError:
+                from layout_preview import LayoutPreviewWindow
+                from pin_preparation import read_prepared_manifest
+            edit={'raw':self.source,'cleaned':self.cleaned,'prepared':self.prepared}[stage]
+            path=Path(edit.text()).expanduser().resolve();xml=Path(self.file_tab.XML_file_edit.text()).expanduser()
+            if not path.is_file() or not xml.is_file():raise ValueError('Choose an existing GDS and XML stackup first.')
+            metadata=read_prepared_manifest(path) if stage=='prepared' else None
+            info=gdstk.gds_info(path);cellname=metadata['cell'] if metadata else self.cell.text().strip()
+            if cellname and cellname not in info['cell_names']:raise ValueError('Cell not found in selected GDS: '+cellname)
+            if not cellname:
+                library,cell=open_gds_cell(str(path),'');cellname=cell.name;del cell,library
+            from gds2palace import stackup_reader as reader
+            if getattr(self.window,'OpenEMSMode',False):from gds2openEMS import stackup_reader as reader
+            stackup=reader.read_substrate(str(xml),variable_overrides=self.file_tab.get_variable_overrides())
+            markers=[dict(kind='port',group='Ports',portnumber=p['portnumber'],source_layernum=p['source_layernum'],name=p['name'],direction='') for p in metadata['ports']] if metadata else []
+            settings=dict(GdsFile=str(path),SubstrateFile=str(xml),cellname=cellname,
+                purpose=sorted({d for l,d in info['layers_and_datatypes']}),preprocess_gds=False,merge_polygon_size=0.)
+            view=LayoutPreviewWindow(self.window,gds_override_path=str(path),title_suffix={'raw':'Raw GDS','cleaned':'Cleaned GDS','prepared':'EM-port GDS'}[stage],
+                preview_settings=settings,preview_markers=markers,preview_stackup=stackup,preview_layers={l for l,d in info['layers_and_datatypes']})
+            view.setParent(self.window,Qt.Window);view.CLOSE_WITH_MAIN_WINDOW=True
+            self._preview_windows.append(view);view.destroyed.connect(lambda: self._forget_preview(view))
+            view.show();self.status.setText('Previewing '+path.name+'. Active simulation input is unchanged.')
+        except (OSError,ValueError,KeyError,SystemExit) as error:self.status.setText('Cannot preview GDS: '+str(error))
+
+    def _forget_preview(self,view):
+        if view in self._preview_windows:self._preview_windows.remove(view)
 
     def state(self):
-        return dict(source=self.source.text(),mapfile=self.mapfile.text(),output=self.cleaned.text(),cell=self.cell.text(),
+        return dict(source=self.source.text(),mapfile=self.mapfile.text(),output=self.cleaned.text(),prepared=self.prepared.text(),cell=self.cell.text(),
             drawing=self.drawing.text(),drop=self.drop.text(),excluded=self.excluded.text(),
             do_floating=self.floating.isChecked(),do_cutouts=self.cutouts.isChecked(),do_merge=self.merge.isChecked(),
             fill_ground_holes=self.ground_holes.isChecked(),fill_minsize=self.minsize.text(),fill_maxsize=self.maxsize.text(),
             fill_mincount=self.mincount.value(),max_hole_area=self.maxarea.text(),via_merge_size=self.via.text())
 
     def load_state(self,state):
-        for key,widget,default in [('source',self.source,''),('mapfile',self.mapfile,''),('output',self.cleaned,''),('cell',self.cell,''),
+        for key,widget,default in [('source',self.source,''),('mapfile',self.mapfile,''),('output',self.cleaned,''),('prepared',self.prepared,''),('cell',self.cell,''),
             ('drawing',self.drawing,'0'),('drop',self.drop,''),('excluded',self.excluded,''),('fill_minsize',self.minsize,'1'),
             ('fill_maxsize',self.maxsize,'20'),('max_hole_area',self.maxarea,'1'),('via_merge_size',self.via,'0')]:widget.setText(str(state.get(key,default)))
         for key,widget,default in [('do_floating',self.floating,True),('do_cutouts',self.cutouts,True),('do_merge',self.merge,True),('fill_ground_holes',self.ground_holes,False)]:widget.setChecked(state.get(key,default))
         self.mincount.setValue(state.get('fill_mincount',20))
+        self.suggest_prepared();self.update_file_buttons()
         self.status.setText('Raw preparation settings loaded. Step 2 verifies the cleaned file and preparation report before continuing.')
 
     def options(self):
@@ -108,7 +178,7 @@ class RawInputSection(QGroupBox):
         state=self.state()
         for key in ('source','output','mapfile'):
             if state[key]:state[key]=str(Path(state[key]).expanduser().resolve())
-        state.pop('drawing');state.pop('drop');state.pop('excluded')
+        state.pop('drawing');state.pop('drop');state.pop('excluded');state.pop('prepared')
         state.update(stackup=str(Path(self.file_tab.XML_file_edit.text()).expanduser().resolve()),
             stackup_reader='openems' if getattr(self.window,'OpenEMSMode',False) else 'palace',
             variable_overrides=self.file_tab.get_variable_overrides(),drawing_datatypes=parse_datatypes(self.drawing.text()),
@@ -154,6 +224,7 @@ class RawInputSection(QGroupBox):
                 self.status.setText('Cleaned GDS ready. Continue with step 2 to review pins and create the _ems.gds.')
             except (OSError,ValueError) as error:self.status.setText('Cannot verify prepared layout: '+str(error))
         else:self.status.setText('Simplification failed or stopped. Simulation inputs were not changed; see the log.')
+        self.suggest_prepared();self.update_file_buttons()
 
     def process_error(self,error):
         self.log.appendPlainText('Process error: '+self.process.errorString())
@@ -174,10 +245,11 @@ class RawInputSection(QGroupBox):
                 from .prepare_ports_dialog import open_dialog
             except ImportError:
                 from prepare_ports_dialog import open_dialog
-            source=Path(options['source']);output=Path(options['output']).with_name(source.stem+'_ems.gds')
+            self.suggest_prepared();output=Path(self.prepared.text())
             data=open_dialog(self.window,source=options['output'],cellname=report['cell'],mapfile=options['mapfile'],
                              output=str(output),preparation_options=options)
             if data:
+                self.prepared.setText(self.file_tab.gds_file_edit.text());self.update_file_buttons()
                 purposes=sorted({d for l,d in report['simulation_drawing_lpps']}|{0})
                 self.file_tab.purpose_edit.setText(format_datatypes(purposes));self.window.saved_values['purpose']=purposes
                 self.status.setText('Prepared _ems.gds is now selected in the simulation inputs, with drawing datatypes + marker datatype 0. Set port directions and return conductors on the Ports tab.')

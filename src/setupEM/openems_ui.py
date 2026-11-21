@@ -1,6 +1,7 @@
 """openEMS-specific controls for the shared setupEM front end."""
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox,
-                               QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QTableWidgetItem, QPushButton, QFileDialog, QPlainTextEdit)
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, QGridLayout, QSplitter,
+                               QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QLayout, QTableWidgetItem, QPushButton, QFileDialog, QPlainTextEdit)
 try:
     from .openems_writer import BOUNDARIES
 except ImportError:
@@ -151,7 +152,10 @@ def install_geometry(w):
     """Optional generated geometry, isolated from Palace's port-wall controls."""
     g=QGroupBox('openEMS: calibrated box-wall feeds (experimental)')
     g.setCheckable(True);g.setChecked(False);w.openems_boxwall_group=g
-    body=QWidget();form=QFormLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
+    body=QWidget();body_layout=QVBoxLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
+    settings=QWidget();form=QVBoxLayout(settings);fields=QGridLayout();form.addLayout(fields)
+    form.setSizeConstraint(QLayout.SetMinimumSize)
+    fields.setColumnStretch(1,1);fields.setColumnStretch(3,1)
     body.hide();g.toggled.connect(body.setVisible)
     w.openems_wall_side=QComboBox();w.openems_wall_side.addItems(['xmax','xmin','ymax','ymin'])
     w.openems_signal=QComboBox();w.openems_signal.setEditable(True)
@@ -168,24 +172,31 @@ def install_geometry(w):
     w.openems_reference_setback.setToolTip('Move the calibrated reference plane outward from the terminal toward the wall. '
         'The transition between the terminal and this plane remains part of the measured device. '
         'Use when an existing ground patch extends into the generated feed; do not de-embed across a nonuniform section.')
-    for label,widget in [('Outward wall side',w.openems_wall_side),('Signal metal',w.openems_signal),
+    for index,(label,widget) in enumerate([('Outward wall side',w.openems_wall_side),('Signal metal',w.openems_signal),
         ('Ground return',w.openems_return_kind),('Return metal / background layer',w.openems_return),
         ('Uniform feed length (um)',w.openems_feed_length),('Wall gap (um)',w.openems_feed_gap),
         ('Feed width (um)',w.openems_feed_width),
-        ('Reference plane setback toward wall (um)',w.openems_reference_setback)]:form.addRow(label,widget)
+        ('Reference plane setback toward wall (um)',w.openems_reference_setback)]):
+        row,column=divmod(index,2);fields.addWidget(QLabel(label),row,column*2);fields.addWidget(widget,row,column*2+1)
     note=QLabel('Generates feeds from aligned rectangular terminal markers. GDS does not determine access direction. '
         'The 3D preview shows the generated device; Prepare also writes calibration standards. Metal returns and backside returns '
         'are different physical fixtures; calibration does not remove their coupling into the device. '
         'A deep backside return may limit the valid calibration band. Trial dimensions require review.')
-    note.setWordWrap(True);form.addRow(note)
+    note.setWordWrap(True);form.addWidget(note)
     w.openems_check_calibration=QPushButton('Check calibration limits / geometry (no simulation)')
     w.openems_check_calibration.clicked.connect(lambda: check_calibration(w, save_tabs=True))
-    form.addRow(w.openems_check_calibration)
+    form.addWidget(w.openems_check_calibration)
     w.openems_calibration_report=QPlainTextEdit()
     w.openems_calibration_report.setReadOnly(True)
-    w.openems_calibration_report.setMaximumHeight(240)
+    w.openems_calibration_report.setMinimumHeight(100)
     w.openems_calibration_report.setPlaceholderText('Check the current inputs to see wavelength, phase and feed requirements, with guidance.')
-    form.addRow(w.openems_calibration_report)
+    splitter=QSplitter(Qt.Vertical);w.openems_boxwall_splitter=splitter
+    splitter.setObjectName('openems_boxwall_messages');splitter.setChildrenCollapsible(False);splitter.setHandleWidth(9)
+    splitter.setStyleSheet('QSplitter::handle:vertical { margin: 3px 8px; background: #c8c8c8; }')
+    splitter.addWidget(settings);splitter.addWidget(w.openems_calibration_report)
+    splitter.setStretchFactor(0,0);splitter.setStretchFactor(1,1);splitter.setSizes([230,300])
+    splitter.handle(1).setToolTip('Drag to resize the calibration messages')
+    body_layout.setContentsMargins(0,0,0,0);body_layout.addWidget(splitter)
     w.openems_calibration_group=QGroupBox('openEMS calibration preflight')
     preflight_layout=QVBoxLayout(w.openems_calibration_group)
     w.openems_run_calibration_report=QPlainTextEdit()
@@ -197,7 +208,13 @@ def install_geometry(w):
     w.create_model_tab.actions_layout.insertWidget(1,w.openems_calibration_group)
     w.openems_calibration_group.hide()
     g.toggled.connect(lambda checked: w.openems_calibration_group.setVisible(w.OpenEMSMode and checked))
-    w.ports_tab.main_layout.insertWidget(1,g)
+    w.ports_tab.lists_splitter.insertWidget(0,g)
+    w.ports_tab.lists_splitter.setStretchFactor(0,2)
+    w.ports_tab.lists_splitter.setStretchFactor(1,3)
+    w.ports_tab.lists_splitter.setStretchFactor(2,1)
+    w.ports_tab.lists_splitter.setSizes([420,350,160])
+    w.ports_tab.lists_splitter.handle(1).setToolTip('Drag to share the height between calibration messages and the port overview')
+    w.ports_tab.lists_splitter.handle(2).setToolTip('Drag to share the height between the port overview and port walls')
     g.toggled.connect(lambda _: refresh_layer_choices(w))
     w.openems_return_kind.currentIndexChanged.connect(lambda _: refresh_layer_choices(w))
     g.hide()

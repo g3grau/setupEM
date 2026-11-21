@@ -27,6 +27,13 @@ def test_raw_to_cleaned_to_reviewed_ports_updates_only_final_simulation_input(wi
         QApplication.processEvents();time.sleep(.01)
     assert raw.run_button.isEnabled() and 'Cleaned GDS ready' in raw.status.text(),raw.log.toPlainText()
     assert files.gds_file_edit.text()==previous
+    assert raw.preview_buttons['cleaned'].isEnabled()
+    before=dict(window.saved_values)
+    raw.preview('cleaned')
+    assert 'Previewing' in raw.status.text(),raw.status.text()
+    assert window.saved_values==before and files.gds_file_edit.text()==previous
+    assert raw._preview_windows[-1].canvas.scene().items()
+    raw._preview_windows[-1].close()
     assert Path(options['output']).with_suffix('.prep.log').exists()
     assert not list(source.parent.glob('.setupem_raw_job_*'))
     errors=[];monkeypatch.setattr(QMessageBox,'warning',lambda *args:errors.append(args[-1]))
@@ -43,11 +50,34 @@ def test_raw_to_cleaned_to_reviewed_ports_updates_only_final_simulation_input(wi
     manifest=json.loads(source.with_name('cadence_ems.ports.json').read_text())
     assert [p['name'] for p in manifest['ports']]==['IN','OUT']
     assert manifest['raw_preparation']['source']['path']==str(source)
+    assert raw.prepared.text()==files.gds_file_edit.text()
+    assert raw.preview_buttons['prepared'].isEnabled()
+    before=dict(window.saved_values)
+    raw.preview('prepared')
+    assert 'Previewing' in raw.status.text(),raw.status.text()
+    assert window.saved_values==before
+    raw._preview_windows[-1].close()
+    files.set_gds_file(str(source))
+    raw.use_prepared()
+    assert files.gds_file_edit.text()==raw.prepared.text()
     assert source.read_bytes()==original and files.input_scroll.widgetResizable()
     config=window.native_config_extra_struct()
     assert config['raw_input']['source']==str(source)
     raw.source.clear();window.apply_analysis_config_data(config)
     assert raw.source.text()==str(source) and raw.drop.text()=='22'
+    assert raw.prepared.text()==str(source.with_name('cadence_ems.gds'))
+    previous=files.gds_file_edit.text()
+    manifest_path=source.with_name('cadence_ems.ports.json')
+    manifest['output_sha256']='stale'
+    manifest_path.write_text(json.dumps(manifest))
+    raw.use_prepared()
+    assert 'Cannot select' in raw.status.text() and files.gds_file_edit.text()==previous
+
+
+def test_stackup_precedes_preprocessing_and_active_input(window):
+    files=window.file_tab
+    assert files.main_layout.indexOf(files.XML_group)<files.main_layout.indexOf(files.raw_input)<files.main_layout.indexOf(files.gds_group)
+    assert files.prepare_ports_btn.isHidden()
 
 
 def test_unverified_cleaned_file_never_replaces_simulation_input(window,tmp_path):

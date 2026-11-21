@@ -312,17 +312,22 @@ def test_window_size_and_divider_are_kept_between_sessions(monkeypatch, app):
         window, module = open_window(monkeypatch)
         window.show()
         window.resize(640, 520)           # within the offscreen screen: Qt fits a restored window into the screen
-        window.ports_tab.lists_splitter.setSizes([300, 300])
+        window.ports_tab.lists_splitter.setSizes([0, 300, 300])  # openEMS calibration panel is hidden in Palace mode
         app.processEvents()
         sizes = window.ports_tab.lists_splitter.sizes()
         saved = (window.width(), window.height())      # after the window's own minimum size
         window._save_window_layout()
         close_window(window)
         window, module = open_window(monkeypatch)
+        window.show()
+        app.processEvents()  # compare the restored divider after the window layout has settled
         # the height comes back (the first-start default would be 90 % of the 800 px offscreen screen); the width
         # is narrowed to that small screen, as Qt does on a real one
         assert window.height() == saved[1] and window.height() != 720
-        assert window.ports_tab.lists_splitter.sizes() == sizes
+        restored=window.ports_tab.lists_splitter.sizes()
+        assert restored[0]==sizes[0]==0
+        # Qt may adjust available pixels on restore; the chosen split must survive.
+        assert abs(restored[1]/sum(restored)-sizes[1]/sum(sizes))<.01
         close_window(window)
     finally:
         QSettings(org, "setupEM").clear()

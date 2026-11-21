@@ -14,7 +14,7 @@ python -m pip install /path/to/gds_prepare_for_EM
 
 ## Workflow
 
-1. Select an **XML stackup** in the section below the simulation GDS input.
+1. Select an **XML stackup** directly below **Target solver**, above preprocessing.
    Its variables/overrides are honored during preprocessing.
 2. Choose the **Raw GDS**, optionally a **Cadence stream map**, and a new
    **Cleaned GDS** path. The suggested filename is `<raw>_cleaned.gds`.
@@ -23,20 +23,30 @@ python -m pip install /path/to/gds_prepare_for_EM
 4. Click **1. Simplify raw GDS**. A background process streams its log. This
    writes the cleaned GDS, `.prep.json` provenance and `.prep.log`; the existing
    simulation input stays unchanged. Existing output files are protected.
-5. Click **2. Prepare EM ports and use _ems.gds**. The existing named-port dialog
+5. Click **2. Create EM-port GDS…**. The existing named-port dialog
    receives the verified cleaned GDS, resolved cell and stream map. Load or edit
    pin/drawing/label mappings if needed, **Find pins**, review/select shapes and
    their names, then **Create _ems.gds and use it**. The suggested output is
    `<raw>_ems.gds` in the cleaned GDS directory.
-6. The prepared layout is selected in the **Simulation Input** group and the
+6. The prepared layout is selected in the **Active simulation input — GDS used by the solver** group and the
    port table is populated. The input datatype filter is set to the physical
    drawing datatypes identified during preprocessing plus marker datatype 0.
    Configure port directions, return conductors and impedances on **Ports**.
 
 The Input Files page scrolls when expanded options or stackup variables need
 more space. Existing already-prepared GDS files can still be selected directly;
-the original **Prepare named EM ports** and **Tools → Simplify GDS** workflows
+the **Tools → Prepare named EM ports from active GDS…** and **Tools → Simplify GDS** workflows
 remain available.
+
+Each GDS row has **Browse** and **Show** controls. After simplification, use
+**Show** next to Cleaned GDS to inspect it immediately. The EM-port GDS row
+below it names the final output and previews its named ports. These previews
+show the saved files without changing the active input or applying model-time
+via merging. **Use for simulation** selects an existing final file and restores
+ports from its matching `.ports.json` manifest when available.
+
+Port preparation creates a file; the active simulation input group identifies
+which file the solver uses. It does not repeat preparation.
 
 ## Layer and geometry handling
 
