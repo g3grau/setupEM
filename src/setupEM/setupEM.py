@@ -70,6 +70,8 @@ if __package__ in (None, ""):
     from cli_common import add_version_argument, start_file_errors
     from script_writer import em_script_text
     from openems_writer import openems_script_text
+    from postprocessing_tab import PostprocessingTab
+    from broadband_tab import BroadbandModelTab
     import openems_ui
     from settings_tab import SettingsTab
     from execution_settings import configure_palace_run_script
@@ -94,6 +96,8 @@ else:
     from .cli_common import add_version_argument, start_file_errors
     from .script_writer import em_script_text
     from .openems_writer import openems_script_text
+    from .postprocessing_tab import PostprocessingTab
+    from .broadband_tab import BroadbandModelTab
     from . import openems_ui
     from .settings_tab import SettingsTab
     from .execution_settings import configure_palace_run_script
@@ -2961,13 +2965,19 @@ class CreateModelTab(CreateModelTabBase):
 
     def open_model_fit(self):
         SNP2LE_URL = "https://github.com/iic-jku/snp2le"
+        broadband=getattr(self.MainWindow,'broadband_tab',None)
+        self._model_fit_python=broadband.engine_python.text().strip() if broadband is not None else sys.executable
+        external_python=os.path.abspath(self._model_fit_python)!=os.path.abspath(sys.executable)
+        if external_python and not os.path.isfile(self._model_fit_python):
+            QMessageBox.warning(self,'Model Fit','Choose an installed Engine Python under Postprocessing → Broadband Model first.')
+            return
 
         # invalidate_caches(): after a just-completed "pip install snp2le" run (see
         # on_finished() below), the import system's directory-listing cache for
         # site-packages can still be stale in this same process, so a find_spec()
         # right after install could still report "not found" without this.
         importlib.invalidate_caches()
-        if importlib.util.find_spec("snp2le") is None:
+        if not external_python and importlib.util.find_spec("snp2le") is None:
             box = QMessageBox(self)
             box.setIcon(QMessageBox.Question)
             box.setWindowTitle("Model Fit")
@@ -3058,7 +3068,7 @@ class CreateModelTab(CreateModelTabBase):
         self.log_area.appendPlainText(SNP2LE_URL)
         self._process_purpose = "model_fit"
         self.process.setWorkingDirectory(raw_dir)
-        self.process.start(sys.executable, ["-m", "snp2le", raw_file])
+        self.process.start(getattr(self,'_model_fit_python',sys.executable), ["-m", "snp2le", raw_file])
 
     def _append_results_summary(self):
         # Palace-only: parse palace.json / error-indicators.csv and append a results summary
@@ -3238,6 +3248,11 @@ class CreateModelTab(CreateModelTabBase):
         # which can do some update to saved_values
         if not self.MainWindow.save_all_tabs():
             return
+
+        if self.MainWindow.OpenEMSMode and saved_values.get('openems_boxwall'):
+            if not openems_ui.check_calibration(self.MainWindow,
+                    for_run=getattr(self, '_openems_run_requested', False)):
+                return
 
         # with a port wall, check the wall ports before writing anything (reads the layout, no meshing);
         # without one this costs nothing
@@ -4063,6 +4078,11 @@ class MainWindow(MainWindowBase):
         self.settings_tab = SettingsTab(self)
         self.create_model_tab = CreateModelTab(self)
         self.modeleditor_tab = ModelEditorTab(self)
+        self.postprocessing_tab = PostprocessingTab(self)
+        self.broadband_tab = BroadbandModelTab(self)
+        self.postprocessing_tab.subtabs.insertTab(
+            self.postprocessing_tab.subtabs.indexOf(self.postprocessing_tab.lumped_tab)+1,
+            self.broadband_tab,'Broadband Model')
 
         # Add tabs
         self.tabs_widget.addTab(self.file_tab, "Input Files")
@@ -4071,6 +4091,7 @@ class MainWindow(MainWindowBase):
         self.tabs_widget.addTab(self.mesh_tab, "Mesh and Boundaries")
         self.tabs_widget.addTab(self.settings_tab, "Settings")
         self.tabs_widget.addTab(self.create_model_tab, "Create Model")
+        self.tabs_widget.addTab(self.postprocessing_tab, "Postprocessing")
         self.tabs_widget.addTab(self.modeleditor_tab, "Code")
 
         self.apply_tab_header_colors()
@@ -4250,7 +4271,16 @@ class MainWindow(MainWindowBase):
 
 
     # ---------- Native config (*.simcfg) / Python import hooks ----------
+    def apply_analysis_config_data(self, data):
+        options = data.get('postprocessing', {})
+        self.postprocessing_settings = dict(options) if isinstance(options, dict) else {}
+        broadband=data.get('broadband',{})
+        self.broadband_settings=dict(broadband) if isinstance(broadband,dict) else {}
+        self.postprocessing_tab.load_values()
+        self.file_tab.raw_input.load_state(data.get('raw_input',{}))
+
     def apply_native_config_data(self, data):
+        self.apply_analysis_config_data(data)
         # update ports, they are separate from the other internal data
         self.ports_tab.update_port_from_import(data.get("ports", []))
         # restore simulator mode (not part of saved_values, see native_config_extra_struct)
@@ -4262,6 +4292,7 @@ class MainWindow(MainWindowBase):
             self.setPalaceMode()
 
     def apply_python_import_data(self, file_path):
+        self.apply_analysis_config_data({})
         # read port assignments in workflow syntax for gds2palace Python code;
         # ScriptModel also reads ports written over several lines and is what
         # preserve mode patches, so both see the same ports
@@ -4306,6 +4337,12 @@ class MainWindow(MainWindowBase):
 
     def native_config_extra_struct(self):
         data = {"ports": simulation_ports_to_struct(simulation_ports), "elmer_mode": self.ElmerMode}
+        if getattr(self, 'postprocessing_settings', {}):
+            data['postprocessing'] = dict(self.postprocessing_settings)
+        if getattr(self,'broadband_settings',{}):data['broadband']=dict(self.broadband_settings)
+        raw=self.file_tab.raw_input.state()
+        if raw.get('source') or raw.get('mapfile') or raw.get('output'):
+            data['raw_input']=raw
         if self.OpenEMSMode:
             data["solver"] = "openems"
         return data

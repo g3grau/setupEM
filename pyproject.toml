@@ -13,7 +13,7 @@ authors = [
 ]
 dependencies = [
     "gds2palace>=0.10.7",
-    "gds_prepare_for_EM>=1.6.0",
+    "gds_prepare_for_EM>=1.8.0",
     "PySide6",
     "shiboken6",
     "scipy",
@@ -31,6 +31,7 @@ requires-python = ">=3.9"
 [project.optional-dependencies]
 test = ["pytest"]
 openems = ["gds2openEMS>=0.7.0"]
+broadband = ["snp2le>=0.2.2"]
 
 [project.urls]
 Homepage = "https://github.com/VolkerMuehlhaus/setupEM"

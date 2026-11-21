@@ -32,6 +32,11 @@ mesh fields, the Python model code generator bodies) is intentionally left
 in setupEM.py / setupThermal.py, not here.
 """
 
+if __package__ in (None, ''):
+    from datatype_filters import parse_datatypes, format_datatypes
+else:
+    from .datatype_filters import parse_datatypes, format_datatypes
+
 import sys, os, json, pathlib, ast, webbrowser, io, contextlib, subprocess, shutil, glob, re, copy, tempfile, time
 import importlib.metadata
 import xml.etree.ElementTree as ET
@@ -45,7 +50,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QComboBox,
     QPushButton, QFileDialog, QMessageBox, QGroupBox,
     QCheckBox, QPlainTextEdit, QDialog, QSizePolicy, QFrame, QRadioButton, QDialogButtonBox,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QScrollArea,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QToolTip, QToolBar,
     )
 from PySide6.QtGui import (
@@ -476,39 +481,11 @@ def resolve_value_text(value_text, known_constants):
 
 
 def normalize_purpose_list(value, default=(0,)):
-    # Normalize a GDSII purpose (datatype) value to the flat list of ints that
-    # gds_reader.read_gds() expects as purposelist ("purpose in purposelist").
-    # Accepts an int, comma-separated text ("0, 35, 4", also "[0]" or "(0, 35)"),
-    # or a list/tuple. Nested lists/tuples are flattened, so values stored by
-    # older versions as [(0, 35, 4)] (or [[0, 35, 4]] after a JSON round trip)
-    # load back correctly instead of matching no datatype at all. Empty or
-    # unparseable input returns the default.
-    if isinstance(value, str):
-        text = value.strip()
-        if text.lower() in ("*", "all"):
-            return list(range(65536))
-        if not text:
-            return list(default)
-        try:
-            value = ast.literal_eval('[' + text + ']')
-        except (SyntaxError, ValueError):
-            return list(default)
-
-    result = []
-    pending = [value]
-    while pending:
-        item = pending.pop(0)
-        if isinstance(item, (list, tuple)):
-            pending[0:0] = list(item)
-        elif isinstance(item, bool):
-            return list(default)
-        elif isinstance(item, int):
-            result.append(item)
-        elif isinstance(item, float) and item.is_integer():
-            result.append(int(item))
-        else:
-            return list(default)
-    return result if result else list(default)
+    # Keep fallback behavior for legacy/imported configuration values.
+    try:
+        return parse_datatypes(value) or list(default)
+    except ValueError:
+        return list(default)
 
 
 def parse_assignments(file_path):
@@ -730,8 +707,8 @@ class FileInputTab(QWidget):
         self.purpose_label1.setFixedWidth(left_label_width)
         self.purpose_edit = QLineEdit("0")
         self.purpose_edit.setStyleSheet(EDIT_STYLE_OPTIONAL)
-        self.purpose_edit.setFixedWidth(70)
-        self.purpose_label2 = QLabel(" (* = all datatypes; or comma-separated)")
+        self.purpose_edit.setMinimumWidth(180)
+        self.purpose_label2 = QLabel(" (* = all; inclusive ranges, e.g. 0:30,40,50,60)")
         self.purpose_layout.addWidget(self.purpose_label1)
         self.purpose_layout.addWidget(self.purpose_edit)
         self.purpose_layout.addWidget(self.purpose_label2)
@@ -890,7 +867,20 @@ class FileInputTab(QWidget):
         self.main_layout.addSpacing(20)
         self.main_layout.addWidget(self.XML_group)
         self.main_layout.addStretch()
-        self.setLayout(self.main_layout)
+        if self.MainWindow.APP_NAME == 'setupEM':
+            if __package__ in (None, ''):
+                from raw_input import RawInputSection
+            else:
+                from .raw_input import RawInputSection
+            self.raw_input = RawInputSection(self)
+            self.main_layout.insertWidget(0,self.raw_input)
+            self.gds_group.setTitle('Simulation Input — prepared GDSII layout')
+            content=QWidget();content.setLayout(self.main_layout)
+            self.input_scroll=QScrollArea();self.input_scroll.setWidgetResizable(True)
+            self.input_scroll.setFrameShape(QFrame.NoFrame);self.input_scroll.setWidget(content)
+            outer=QVBoxLayout(self);outer.setContentsMargins(0,0,0,0);outer.addWidget(self.input_scroll)
+        else:
+            self.setLayout(self.main_layout)
 
     def browse_gds_file(self):
         # start browsing from previous file location, if valid
@@ -1166,7 +1156,7 @@ class FileInputTab(QWidget):
         purpose_default = get_preference(self.MainWindow.APP_NAME, "purpose", self.MainWindow.DEFAULT_PURPOSE)
         int_list = normalize_purpose_list(saved_values.get("purpose", purpose_default),
                                           default=normalize_purpose_list(purpose_default))
-        self.purpose_edit.setText('*' if int_list == list(range(65536)) else ', '.join(map(str, int_list)))
+        self.purpose_edit.setText(format_datatypes(int_list))
 
         # read_XML(self.XML_file_edit.text()) # safe if invalid filename
 
@@ -1196,8 +1186,11 @@ class FileInputTab(QWidget):
 
         # save as flat list of ints, empty text falls back to the preference default
         purpose_default = get_preference(self.MainWindow.APP_NAME, "purpose", self.MainWindow.DEFAULT_PURPOSE)
-        saved_values["purpose"] = normalize_purpose_list(self.purpose_edit.text(),
-                                                         default=normalize_purpose_list(purpose_default))
+        try:
+            saved_values["purpose"] = parse_datatypes(self.purpose_edit.text()) or normalize_purpose_list(purpose_default)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid datatype filter", str(error))
+            return False
 
         # also trigger the load function of CreateModelTab, because that uses gds file info
         self.MainWindow.create_model_tab.load_values()
@@ -4980,6 +4973,12 @@ class MainWindowBase(QMainWindow):
 
     # ---------- Tab change handling ----------
     def on_tab_change(self, index):
+        if getattr(self.tabs_widget.widget(index), 'independent_analysis_tab', False):
+            # Existing result files can be analyzed without configuring a new
+            # simulation (or validating incomplete GDS/stackup input fields).
+            self._previous_index = index
+            self.export_model_action.setEnabled(False)
+            return
         # check if we are ready to leave the tab, i.e. all values are valid
         previous_widget = self.tabs_widget.widget(self._previous_index)
         if hasattr(previous_widget, "save_values"):
@@ -5199,6 +5198,7 @@ class MainWindowBase(QMainWindow):
                                 self.user_inputs_file = file_path   # Create Model keeps the link (model_script)
                                 self.hide_info_bar()
                                 self._update_script_from_config(file_path, data)
+                            self.apply_analysis_config_data(data)
                             return
                 leave_current_script()
                 self.user_inputs_file = file_path
@@ -6416,6 +6416,8 @@ class MainWindowBase(QMainWindow):
     def closeEvent(self, event):
         if self.confirm_unsaved_script():
             self._save_window_layout()
+            for child in self.findChildren(QWidget):
+                if getattr(child,'CLOSE_WITH_MAIN_WINDOW',False):child.close()
             super().closeEvent(event)
         else:
             event.ignore()
@@ -6533,6 +6535,10 @@ class MainWindowBase(QMainWindow):
             self.edit_py_model(filename)
         else:
             self.open_file(filename)
+
+    def apply_analysis_config_data(self, data):
+        """Optional UI-only analysis state, also restored from a script's sidecar."""
+        pass
 
     def apply_native_config_data(self, data):
         # Hook: update the app-specific tab (ports / thermal objects) from

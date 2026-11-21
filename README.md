@@ -245,9 +245,49 @@ The matplotlib toolbar above the plot (pan/zoom/save as PNG) works as usual. A f
 
 Result Viewer can also be run standalone, without the full setupEM GUI, either directly (`python result_viewer.py [target_dir]`) or via the `resultViewer` console script installed with the package.
 
+## Raw GDS preparation
+
+**Input Files → Raw Input** takes a Cadence GDS through stackup-driven fill/cutout
+cleanup and named EM-port preparation. It writes separate cleaned and `_ems.gds`
+files, then selects the prepared layout and ports for simulation. Pin shapes and
+labels are preserved, and manifests link the outputs to the original inputs.
+See [Raw Input workflow](doc/raw_input.md).
+
+## Postprocessing
+
+The **Postprocessing** tab loads existing Touchstone results from any solver.
+Choose two ports and specify whether unused ports are matched or open-circuit.
+It extracts differential inductor L/R/Q or uniform transmission-line Zc,
+attenuation, phase and RLGC per unit length. Transmission-line extraction needs
+the physical line length and an appropriate phase branch; it does not remove
+launch fixtures. Plots and native-sample readouts can be exported with source
+and extraction provenance. **DC extension** adds an explicitly extrapolated DC
+point to a separate Touchstone derivative while preserving native AC samples.
+**Lumped models** integrates a separately installed `lumpedmodel` checkout for
+wideband inductor fitting and target-frequency pi, MIM and RLGC extraction,
+with background execution, captured plots and isolated output folders.
+**Plot** overlays multiple files with optional legend names, per-file port pairs,
+inductor L/R/Q or raw S-parameter views, and documented comparison export.
+Parameter and comparison figures open in separate resizable windows, with
+synchronized readouts and a **Show plots…** button to reopen them.
+See [Postprocessing](doc/postprocessing.md).
+
+## Broadband Model
+
+The **Postprocessing → Broadband Model** sub-tab, next to Lumped models, fits complete N-port Touchstone networks with
+the optional [snp2le](https://github.com/iic-jku/snp2le) universal engine. It provides
+fit-band/order controls, passivity and DC diagnostics, optional thermal noise,
+Ngspice/VACASK/Xyce netlists and source/model overlays in the separate plot window.
+An **Engine Python** selector supports an isolated backend environment when CAD
+tools require different scikit-rf versions. See [Broadband models](doc/broadband_model.md).
+
 ## Model Fit
 
 Click **Model Fit...** on the Create Model tab (next to **View Results...**) to extract a lumped-element netlist from the current run's S-parameter result, using [snp2le](https://github.com/iic-jku/snp2le) - an external, open-source tool, not part of setupEM.
+
+This shortcut opens snp2le's standalone GUI using the Engine Python selected on
+Broadband Model. Prefer that tab's isolated-environment setup when another CAD
+package pins an incompatible scikit-rf version.
 
 <img src="./doc/png/resultviewer_button.png" alt="model fit button" width="700">
 

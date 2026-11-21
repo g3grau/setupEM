@@ -9,4 +9,5 @@ examples/*.gds
 palace_model/
 .vscode/
 *.bat
+.tools/snp2le-env/
 

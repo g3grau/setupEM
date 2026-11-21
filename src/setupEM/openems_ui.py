@@ -1,6 +1,6 @@
 """openEMS-specific controls for the shared setupEM front end."""
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox,
-                               QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QTableWidgetItem, QPushButton, QFileDialog)
+                               QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QTableWidgetItem, QPushButton, QFileDialog, QPlainTextEdit)
 try:
     from .openems_writer import BOUNDARIES
 except ImportError:
@@ -97,6 +97,7 @@ def update(window):
     m, f = window.mesh_tab, window.frequencies_tab
     m.openems_group.setVisible(openems)
     window.openems_saved_preview.setVisible(openems)
+    window.openems_calibration_group.setVisible(openems and window.openems_boxwall_group.isChecked())
     for layout in (m.meshorder_layout, m.cells_maxsize_layout, m.conductor_model_layout):
         layout_visible(layout, not openems)
     # Conductor presets were already hidden for Elmer.
@@ -177,6 +178,25 @@ def install_geometry(w):
         'are different physical fixtures; calibration does not remove their coupling into the device. '
         'A deep backside return may limit the valid calibration band. Trial dimensions require review.')
     note.setWordWrap(True);form.addRow(note)
+    w.openems_check_calibration=QPushButton('Check calibration limits / geometry (no simulation)')
+    w.openems_check_calibration.clicked.connect(lambda: check_calibration(w, save_tabs=True))
+    form.addRow(w.openems_check_calibration)
+    w.openems_calibration_report=QPlainTextEdit()
+    w.openems_calibration_report.setReadOnly(True)
+    w.openems_calibration_report.setMaximumHeight(240)
+    w.openems_calibration_report.setPlaceholderText('Check the current inputs to see wavelength, phase and feed requirements, with guidance.')
+    form.addRow(w.openems_calibration_report)
+    w.openems_calibration_group=QGroupBox('openEMS calibration preflight')
+    preflight_layout=QVBoxLayout(w.openems_calibration_group)
+    w.openems_run_calibration_report=QPlainTextEdit()
+    w.openems_run_calibration_report.setReadOnly(True)
+    w.openems_run_calibration_report.setMaximumHeight(180)
+    w.openems_run_calibration_report.setPlaceholderText('Preview, Prepare or Start checks calibration before proceeding. You can also check from the Ports tab.')
+    preflight_layout.addWidget(w.openems_run_calibration_report)
+    w.openems_calibration_group.setMaximumHeight(230)
+    w.create_model_tab.actions_layout.insertWidget(1,w.openems_calibration_group)
+    w.openems_calibration_group.hide()
+    g.toggled.connect(lambda checked: w.openems_calibration_group.setVisible(w.OpenEMSMode and checked))
     w.ports_tab.main_layout.insertWidget(1,g)
     g.toggled.connect(lambda _: refresh_layer_choices(w))
     w.openems_return_kind.currentIndexChanged.connect(lambda _: refresh_layer_choices(w))
@@ -186,6 +206,15 @@ def install_geometry(w):
     for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width):
         widget.valueChanged.connect(lambda _: refresh_port_overview(w))
     w.openems_boxwall_group.toggled.connect(lambda _: refresh_port_overview(w))
+    for widget in (w.openems_wall_side,w.openems_signal,w.openems_return,w.openems_return_kind):
+        widget.currentTextChanged.connect(lambda _: invalidate_calibration(w))
+    for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width,w.openems_reference_setback):
+        widget.valueChanged.connect(lambda _: invalidate_calibration(w))
+    for widget in (w.frequencies_tab.start_edit,w.frequencies_tab.stop_edit,w.file_tab.gds_file_edit,
+                   w.file_tab.XML_file_edit,w.file_tab.purpose_edit):
+        widget.textChanged.connect(lambda _: invalidate_calibration(w))
+    w.file_tab.cellname_box.currentTextChanged.connect(lambda _: invalidate_calibration(w))
+    w.ports_tab.portslist.itemChanged.connect(lambda _: invalidate_calibration(w))
     g=QGroupBox('RDL passivation: air-valley approximation (experimental)')
     g.setCheckable(True);g.setChecked(False);w.openems_aircut_group=g
     body=QWidget();form=QFormLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
@@ -322,3 +351,38 @@ def preview_saved_geometry(window):
         window.create_model_tab.log_area.appendPlainText('Previewing saved solver geometry (unchanged): '+filename)
     except Exception as error:
         QMessageBox.warning(window,'Saved geometry preview',str(error))
+
+
+def invalidate_calibration(window):
+    for name in ('openems_calibration_report', 'openems_run_calibration_report'):
+        panel=getattr(window,name,None)
+        if panel is not None:
+            panel.setPlainText('Settings changed. Check calibration again; Preview, Prepare and Start also check automatically.')
+
+
+def check_calibration(window, save_tabs=False, for_run=False):
+    """Show the current backend plan and block invalid simulation launches."""
+    if save_tabs and not window.save_all_tabs():
+        return False
+    if not window.saved_values.get('openems_boxwall'):
+        return True
+    try:
+        try:
+            from .openems_preflight import check_configuration, report_text
+        except ImportError:
+            from openems_preflight import check_configuration, report_text
+        report=check_configuration(window.saved_values, window.native_config_extra_struct()['ports'])
+        text=report_text(report)
+    except (ImportError, AttributeError) as error:
+        report={'ok':False,'geometry_ok':False}
+        text=('Calibration preflight unavailable. Install/update gds2openEMS in the Python environment running setupEM.\n'
+              +str(error))
+    window.openems_calibration_report.setPlainText(text)
+    if hasattr(window, 'openems_run_calibration_report'):
+        window.openems_run_calibration_report.setPlainText(text)
+    window.openems_calibration_report.setToolTip('Last checked current settings. Preview, Prepare and Start check again automatically.')
+    if not report['ok'] and (for_run or not report['geometry_ok']):
+        QMessageBox.warning(window, 'openEMS calibration: changes required', text)
+    # Preview/Prepare can still inspect valid geometry with a failed band check.
+    # Start is blocked; a geometry failure blocks every action.
+    return report['ok'] or (not for_run and report['geometry_ok'])

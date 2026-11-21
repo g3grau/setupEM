@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QCheckBox, QMessageBox, QGraphicsView, QGraphicsScene,
     QGraphicsItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem,
     QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsLineItem, QGraphicsPixmapItem, QSlider,
-    QSplitter, QApplication,
+    QSplitter, QApplication, QSizePolicy,
     )
 from PySide6.QtGui import (
     QColor, QBrush, QPen, QPolygonF, QPainter, QFont, QPainterPath, QTransform,
@@ -46,8 +46,10 @@ from gds2palace import gds_reader, stackup_reader
 
 if __package__ in (None, ""):
     import gds_hierarchy_scan
+    from datatype_filters import format_datatypes
 else:
     from . import gds_hierarchy_scan
+    from .datatype_filters import format_datatypes
 
 DEFAULT_LAYER_COLOR = "#a0a0a0"   # stackup_material.color has no default (None) if XML omits Color=
 PEC_LAYER_COLOR = "#b4dcff"       # matches setup_common.PEC_MATERIAL_COLOR's soft blue
@@ -578,7 +580,13 @@ class LayoutPreviewWindow(QDialog):
         # QSplitter (not a plain layout) so the user can drag the divider to
         # resize the legend panel width - it was getting too tight for longer
         # layer/port names once direction/inactive tags were added to them
+        legend_panel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        legend_scroll.setMinimumWidth(0)
+        self.canvas.setMinimumWidth(180)
         content_splitter = QSplitter(Qt.Horizontal)
+        self.content_splitter = content_splitter
+        content_splitter.setHandleWidth(9)
+        content_splitter.setStyleSheet("QSplitter::handle:horizontal { background: #c8c8c8; margin: 8px 3px; border-radius: 1px; } QSplitter::handle:horizontal:hover { background: #909090; }")
         content_splitter.addWidget(self.canvas)
         content_splitter.addWidget(legend_panel)
         content_splitter.setStretchFactor(0, 1)
@@ -590,6 +598,8 @@ class LayoutPreviewWindow(QDialog):
 
         self.info_label = QLabel("")
         self.info_label.setWordWrap(True)
+        self.info_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.info_label.setMaximumHeight(self.info_label.fontMetrics().height()*3)
 
         # live cursor position (GDS coordinates, um) and, in measure mode, the
         # current measurement - see LayoutCanvas's cursorMoved/measureChanged
@@ -785,7 +795,8 @@ class LayoutPreviewWindow(QDialog):
             count = len(self._highlight_items)
             text += (f"   Selected: {self._highlighted_layer_name} "
                      f"({count} polygon{'s' if count != 1 else ''})")
-        self.info_label.setText(text)
+        self.info_label.setText(text if len(text)<=300 else text[:297]+"…")
+        self.info_label.setToolTip(text)
 
     def _section_label(self, text):
         label = QLabel(text)
@@ -1476,7 +1487,7 @@ class LayoutPreviewWindow(QDialog):
             self._info_base_text = (
                 f"GDS: {os.path.basename(gds_path_to_read)}   "
                 f"Cell: {saved_values['cellname'] or '(top cell)'}   "
-                f"Purpose: {saved_values['purpose']}")
+                f"Datatypes: {format_datatypes(saved_values['purpose'])}")
 
             # re-apply any active cross-window highlight - the polygon items it
             # outlines were just rebuilt from scratch above; this also refreshes

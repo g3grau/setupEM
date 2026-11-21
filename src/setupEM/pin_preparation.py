@@ -68,7 +68,7 @@ def inspect(gds_path, rows, cellname=''):
     return lib,cell,inventory(cell,rows)
 
 
-def write(gds_path, output, rows, selection, cellname='', start_layer=240, stackup='', mapfile=''):
+def write(gds_path, output, rows, selection, cellname='', start_layer=240, stackup='', mapfile='',preparation=None):
     """selection is ordered (inventory ID, reviewed name); originals are retained."""
     source=Path(gds_path);output=Path(output);manifest=output.with_suffix('.ports.json')
     protected=[source]+[Path(x) for x in (stackup,mapfile) if x]
@@ -105,6 +105,7 @@ def write(gds_path, output, rows, selection, cellname='', start_layer=240, stack
     data=dict(schema='setupEM.ports.v1',input=str(source.resolve()),
               input_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
               cell=cell.name,unit_m=lib.unit,ports=ports,mapping=[list(r) for r in rows])
+    if preparation is not None:data['raw_preparation']=preparation
     # Exclusive creation protects existing files, including races after the checks above.
     with output.open('xb') as stream:lib.write_gds(stream)
     data['output_sha256']=hashlib.sha256(output.read_bytes()).hexdigest()

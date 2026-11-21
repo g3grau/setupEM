@@ -54,8 +54,33 @@ the corrected generator.
 group. It opens an existing solver XML without regenerating the geometry.
 
 A deep return can require long standards and reduce valid calibration bandwidth.
-For the roughly 200 um TSMC backside return, a trial produced an estimated limit
-near 26 GHz. This is not equivalent to the nearby M1-return fixture. Feed/ground/
+Preparation checks both the effective-index wavelength criterion and the
+maximum-permittivity half-wave criterion for the 2L standard. The latter is the
+same deterministic phase bound used after solving. Standard lengths are capped
+to satisfy both where possible; if the minimum settling length (2 D) cannot fit,
+preparation reports the lower limit before a simulation starts. This does not
+replace post-solve checks of reciprocity, phase branches and launch parameters.
+
+Use **Check calibration limits / geometry (no simulation)** in the Ports tab to
+read the current GDS/stackup and show the actual planned L/2L lengths, both
+wavelength/phase limits, the small-port limit and uniform-feed requirement.
+The report explains which setting to change: feed length for straight-section
+failures; a reviewed reference-plane setback or removal of an artificial patch
+for feed transitions; a lower stop frequency or closer return for bandwidth
+failures. Dielectric oversize does not move the PEC port wall.
+
+Preview, Prepare and Start repeat the check automatically. The report is visible
+in Ports and directly below the Actions buttons in Create Model. Start is blocked
+on failed checks before writing/running the model; Preview/Prepare may inspect
+geometry with band warnings, but cannot proceed through a geometry failure.
+Changing the feed, band, layout selection or ports marks the report stale.
+
+For the roughly 200 um backside-return trial, previously generated standards
+L=944.345 um have a maximum-permittivity phase limit of about 23.01 GHz, despite
+the older effective-index-only planning estimate accepting 25 GHz. A 22 GHz
+subset of completed networks can be calibrated without repeating those solves;
+changing standards instead requires new standard data. This fixture is not
+equivalent to the nearby M1-return fixture. Feed/ground/
 wall interaction with the device cannot be calibrated away. No correction makes
 an arbitrary characterization geometry physically identical to another one.
 

@@ -12,14 +12,15 @@ else:
 
 
 class PreparePortsDialog(QDialog):
-    def __init__(self,window):
+    def __init__(self,window,source=None,cellname=None,mapfile=None,output=None,preparation_options=None):
         super().__init__(window)
         self.window=window;self.result_data=None;self.scanned=None
+        self.preparation_options=preparation_options
         self.setWindowTitle('Prepare named EM ports from GDS pins');self.resize(1050,670)
         layout=QVBoxLayout(self);form=QFormLayout();layout.addLayout(form)
-        self.source=QLineEdit(window.file_tab.gds_file_edit.text());form.addRow('Original GDS',self.source)
-        self.cell=QLineEdit(window.saved_values.get('cellname',''));form.addRow('Cell (blank = unique top cell)',self.cell)
-        row=QHBoxLayout();self.mapfile=QLineEdit();row.addWidget(self.mapfile)
+        self.source=QLineEdit(source if source is not None else window.file_tab.gds_file_edit.text());form.addRow('Original / cleaned GDS',self.source)
+        self.cell=QLineEdit(cellname if cellname is not None else window.saved_values.get('cellname',''));form.addRow('Cell (blank = unique top cell)',self.cell)
+        row=QHBoxLayout();self.mapfile=QLineEdit(mapfile or '');row.addWidget(self.mapfile)
         browse=QPushButton('Load mapfile…');row.addWidget(browse);browse.clicked.connect(self.load_map)
         form.addRow('Layer map',row)
         self.mapping=QPlainTextEdit();self.mapping.setMaximumHeight(115)
@@ -36,7 +37,7 @@ class PreparePortsDialog(QDialog):
         form=QFormLayout();layout.addLayout(form)
         self.start=QSpinBox();self.start.setRange(0,65535);self.start.setValue(240)
         form.addRow('First candidate marker layer (occupied layers skipped)',self.start)
-        row=QHBoxLayout();self.output=QLineEdit(str(Path(self.source.text()).with_name(Path(self.source.text()).stem+'_ems.gds')))
+        row=QHBoxLayout();self.output=QLineEdit(output or str(Path(self.source.text()).with_name(Path(self.source.text()).stem+'_ems.gds')))
         row.addWidget(self.output);browse=QPushButton('Save as…');row.addWidget(browse);browse.clicked.connect(self.choose_output)
         form.addRow('Prepared GDS',row)
         hint=QLabel('Port numbers follow the selected table rows. Writes datatype 0 markers and net-name labels, plus a .ports.json manifest. '
@@ -44,7 +45,8 @@ class PreparePortsDialog(QDialog):
         hint.setWordWrap(True);layout.addWidget(hint)
         row=QHBoxLayout();row.addStretch();cancel=QPushButton('Cancel');cancel.clicked.connect(self.reject);row.addWidget(cancel)
         self.create=QPushButton('Create _ems.gds and use it');self.create.clicked.connect(self.generate);row.addWidget(self.create);layout.addLayout(row)
-        for name in ('mapfile','stream.map','gds.map'):
+        if mapfile:self.read_map()
+        for name in (() if mapfile else ('mapfile','stream.map','gds.map')):
             candidate=Path(self.source.text()).parent/name
             if candidate.is_file():
                 self.mapfile.setText(str(candidate));self.read_map();break
@@ -105,15 +107,24 @@ class PreparePortsDialog(QDialog):
                        for r in range(self.table.rowCount()) if self.table.item(r,0).checkState()==Qt.Checked]
             stackup=self.window.file_tab.XML_file_edit.text()
             if not Path(stackup).is_file():stackup=''
+            preparation=None
+            if self.preparation_options:
+                if __package__ in (None,''):
+                    from raw_preparation import verified_report
+                else:
+                    from .raw_preparation import verified_report
+                preparation=verified_report(self.preparation_options)
+                if Path(self.source.text()).resolve()!=Path(preparation['output']['path']):
+                    raise ValueError('Port source differs from the verified cleaned layout.')
             self.result_data=pins.write(self.source.text(),self.output.text(),self.rows(),selection,
-                cellname=self.cell.text(),start_layer=self.start.value(),stackup=stackup,mapfile=self.mapfile.text())
+                cellname=self.cell.text(),start_layer=self.start.value(),stackup=stackup,mapfile=self.mapfile.text(),preparation=preparation)
             self.accept()
         except Exception as error:QMessageBox.warning(self,'Cannot prepare ports',str(error))
 
 
-def open_dialog(window):
-    if not window.file_tab.save_values():return
-    dialog=PreparePortsDialog(window)
+def open_dialog(window,**options):
+    if not options.get('source') and not window.file_tab.save_values():return
+    dialog=PreparePortsDialog(window,**options)
     if dialog.exec()!=QDialog.Accepted:return
     data=dialog.result_data
     window.file_tab.set_gds_file(dialog.output.text())
@@ -138,3 +149,4 @@ def open_dialog(window):
         window.ports_tab.update_port_from_import(ports)
         window.ports_tab.refresh_missing_layer_annotations()
     window.statusBar().showMessage('Prepared named ports. Configure port direction and return on the Ports tab.',15000)
+    return data
