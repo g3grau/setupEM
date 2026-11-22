@@ -31,7 +31,8 @@ entirely from the XML stackup already parsed into MainWindow.metals_list
 (gds2palace's stackup_reader), with gds_simplify_for_em.layers_from_stackup().
 """
 
-import os, io, contextlib, traceback
+import os, io, contextlib, traceback, tempfile
+from pathlib import Path
 from gds_simplify_for_em import run_simplify, layers_from_stackup
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
@@ -42,8 +43,12 @@ from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
 if __package__ in (None,''):
     from path_config import output_filename
+    from generated_output_dialog import choose_output
+    from generated_outputs import check_outputs,publish_outputs
 else:
     from .path_config import output_filename
+    from .generated_output_dialog import choose_output
+    from .generated_outputs import check_outputs,publish_outputs
 
 # get_preference() itself has no dependency on this module, so importing it
 # here is not circular - setup_common.py only ever imports this module
@@ -407,6 +412,16 @@ class SimplifyGdsDialog(QDialog):
                                                 "check 'Layers excluded from simplification'")
             return
 
+        raw=getattr(self.MainWindow.file_tab,'raw_input',None)
+        try:
+            output_path,overwrite=choose_output(self,self.MainWindow.APP_NAME,output_path,inputs=(
+                gds_path,self.MainWindow.saved_values.get('SubstrateFile',''),
+                raw.source.text() if raw else '',raw.mapfile.text() if raw else ''))
+            if output_path is None:return
+            self.output_edit.setText(output_path)
+            states=check_outputs((output_path,),overwrite=overwrite)
+        except (OSError,ValueError) as error:
+            QMessageBox.warning(self,'Cannot simplify',str(error));return
         cellname = self.MainWindow.saved_values.get("cellname", "")
 
         self.log_area.setPlainText("Running ...")
@@ -426,15 +441,19 @@ class SimplifyGdsDialog(QDialog):
         captured_stdout = io.StringIO()
         try:
             os.makedirs(os.path.dirname(os.path.abspath(output_path)),exist_ok=True)
-            with contextlib.redirect_stdout(captured_stdout):
-                run_simplify(
-                    gds_path, layers_to_process, output_path, cellname=cellname,
-                    do_cutouts=do_cutouts, max_hole_area=max_hole_area,
-                    do_floating=do_floating, fill_minsize=fill_minsize,
-                    fill_maxsize=fill_maxsize, fill_mincount=fill_mincount,
-                    do_merge=do_merge,
-                    via_layers=[v for v in self._via_layers if v[0] not in excluded_layers],
-                    via_merge_size=via_merge_size)
+            with tempfile.TemporaryDirectory(prefix='.setupem_simplify_',dir=Path(output_path).parent) as directory:
+                staged=Path(directory)/'simplified.gds'
+                with contextlib.redirect_stdout(captured_stdout):
+                    run_simplify(
+                        gds_path, layers_to_process, str(staged), cellname=cellname,
+                        do_cutouts=do_cutouts, max_hole_area=max_hole_area,
+                        do_floating=do_floating, fill_minsize=fill_minsize,
+                        fill_maxsize=fill_maxsize, fill_mincount=fill_mincount,
+                        do_merge=do_merge,
+                        via_layers=[v for v in self._via_layers if v[0] not in excluded_layers],
+                        via_merge_size=via_merge_size)
+                publish_outputs(((staged,output_path),),overwrite=overwrite,expected=states)
+            captured_stdout.write('\nPublished simplified GDS: '+str(output_path)+'\n')
         except (Exception, SystemExit):
             printed = captured_stdout.getvalue().strip()
             details = (printed + "\n\n" + traceback.format_exc()) if printed else traceback.format_exc()

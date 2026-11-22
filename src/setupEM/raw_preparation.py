@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.metadata
 import json
-import os
 import tempfile
 import numpy as np
 
@@ -18,7 +17,7 @@ def file_identity(path):
     return dict(path=str(path),sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
 
-def preprocess(options,work_parent=None):
+def preprocess(options,work_parent=None,overwrite=False):
     import gdstk
     from gds_simplify_for_em import run_simplify,layers_from_stackup
     from gds_geometry_utils import design_cell,validate_and_repair_polygons
@@ -28,15 +27,16 @@ def preprocess(options,work_parent=None):
         from gds2palace import stackup_reader
     try:
         from .pin_preparation import read_map
+        from .generated_outputs import check_outputs,publish_outputs
     except ImportError:
         from pin_preparation import read_map
+        from generated_outputs import check_outputs,publish_outputs
     opts=dict(options);source=file_identity(opts['source']);stackup=file_identity(opts['stackup'])
     output=Path(opts['output']).expanduser().resolve();report_path=output.with_suffix('.prep.json')
     mapping=file_identity(opts['mapfile']) if opts.get('mapfile') else None
     inputs=[source,stackup]+([mapping] if mapping else [])
-    for path in (output,report_path):
-        if path.exists():raise ValueError('Output already exists; choose a new name: '+str(path))
-        if str(path) in [item['path'] for item in inputs]:raise ValueError('Output must differ from every input.')
+    states=check_outputs((output,report_path,output.with_suffix('.prep.log')),
+        [item['path'] for item in inputs],overwrite=overwrite)
     for key in ('fill_minsize','fill_maxsize','max_hole_area','via_merge_size'):
         value=opts.get(key)
         if value is not None and (not np.isfinite(value) or value<0):raise ValueError(key+' must be finite and nonnegative.')
@@ -157,13 +157,7 @@ def preprocess(options,work_parent=None):
             adapter_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             output=dict(path=str(output),sha256=hashlib.sha256(staged.read_bytes()).hexdigest()))
         staged_report=temporary/'report.json';staged_report.write_text(json.dumps(report,indent=2)+'\n')
-        created=[]
-        try:
-            for src,target in ((staged,output),(staged_report,report_path)):
-                os.link(src,target);created.append(target)
-        except Exception:
-            for target in created:target.unlink(missing_ok=True)
-            raise
+        publish_outputs(((staged,output),(staged_report,report_path)),overwrite=overwrite,expected=states)
     print(f'Cleaned GDS: {output}\nPreparation report: {report_path}\nOriginal pins and {len(labels)} labels retained.',flush=True)
     return report
 
@@ -172,7 +166,7 @@ def verified_report(options):
     output=Path(options['output']).expanduser().resolve()
     report=json.loads(output.with_suffix('.prep.json').read_text())
     if report.get('schema')!='setupEM.raw-preparation.v1' or report['options']!=options:
-        raise ValueError('Raw preparation settings changed. Simplify again with a new output name.')
+        raise ValueError('Raw preparation settings changed. Simplify again, replacing generated files or choosing a new output name.')
     for key in ('source','stackup','stream_map','output'):
         identity=report.get(key)
         if identity and file_identity(identity['path'])!=identity:

@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLine
 if __package__ in (None, ''):
     import pin_preparation as pins
     from path_config import browse_start,project_directory,output_filename
+    from generated_output_dialog import choose_output
 else:
     from . import pin_preparation as pins
     from .path_config import browse_start,project_directory,output_filename
+    from .generated_output_dialog import choose_output
 
 
 class PreparePortsDialog(QDialog):
@@ -43,7 +45,7 @@ class PreparePortsDialog(QDialog):
         row.addWidget(self.output);browse=QPushButton('Save as…');row.addWidget(browse);browse.clicked.connect(self.choose_output)
         form.addRow('Prepared GDS',row)
         hint=QLabel('Port numbers follow the selected table rows. Writes datatype 0 markers and net-name labels, plus a .ports.json manifest. '
-                    'Selected pins replace the current port table. Existing outputs are protected. Port direction, return conductor and impedance are configured on the Ports tab.')
+                    'Selected pins replace the current port table. Existing outputs require confirmation unless replacement is enabled in Preferences. Port direction, return conductor and impedance are configured on the Ports tab.')
         hint.setWordWrap(True);layout.addWidget(hint)
         row=QHBoxLayout();row.addStretch();cancel=QPushButton('Cancel');cancel.clicked.connect(self.reject);row.addWidget(cancel)
         self.create=QPushButton('Create _ems.gds and use it');self.create.clicked.connect(self.generate);row.addWidget(self.create);layout.addLayout(row)
@@ -118,9 +120,14 @@ class PreparePortsDialog(QDialog):
                 preparation=verified_report(self.preparation_options)
                 if Path(self.source.text()).resolve()!=Path(preparation['output']['path']):
                     raise ValueError('Port source differs from the verified cleaned layout.')
-            Path(self.output.text()).expanduser().parent.mkdir(parents=True,exist_ok=True)
+            raw=self.window.file_tab.raw_input.source.text()
+            output,overwrite=choose_output(self,self.window.APP_NAME,self.output.text(),('.ports.json',),
+                (self.source.text(),stackup,self.mapfile.text(),raw))
+            if output is None:return
+            self.output.setText(output)
+            Path(output).expanduser().parent.mkdir(parents=True,exist_ok=True)
             self.result_data=pins.write(self.source.text(),self.output.text(),self.rows(),selection,
-                cellname=self.cell.text(),start_layer=self.start.value(),stackup=stackup,mapfile=self.mapfile.text(),preparation=preparation)
+                cellname=self.cell.text(),start_layer=self.start.value(),stackup=stackup,mapfile=self.mapfile.text(),preparation=preparation,overwrite=overwrite)
             self.accept()
         except Exception as error:QMessageBox.warning(self,'Cannot prepare ports',str(error))
 

@@ -3784,6 +3784,11 @@ class PreferencesDialog(QDialog):
         self.in_place_save_checkbox.setChecked(get_preference_bool(self.app_name, "in_place_save_without_asking", True))
         files_form.addWidget(self.in_place_save_checkbox)
         self._reset_targets.append((self.in_place_save_checkbox, "in_place_save_without_asking", True, "bool"))
+        self.overwrite_generated_gds_checkbox=QCheckBox('Replace generated GDS files and their sidecars without asking')
+        self.overwrite_generated_gds_checkbox.setChecked(get_preference_bool(self.app_name,'overwrite_generated_gds',False))
+        self.overwrite_generated_gds_checkbox.setToolTip('Applies to simplification and EM-port preparation. Original inputs are always protected; failed generation retains previous outputs.')
+        files_form.addWidget(self.overwrite_generated_gds_checkbox)
+        self._reset_targets.append((self.overwrite_generated_gds_checkbox,'overwrite_generated_gds',False,'bool'))
 
         files_form.addStretch()
         self.tabs.addTab(files_widget, "Files")
@@ -4081,6 +4086,7 @@ class PreferencesDialog(QDialog):
 
         set_preference(self.app_name, "purpose", self.purpose_edit.text())
         set_preference(self.app_name, "in_place_save_without_asking", self.in_place_save_checkbox.isChecked())
+        set_preference(self.app_name,'overwrite_generated_gds',self.overwrite_generated_gds_checkbox.isChecked())
         set_preference(self.app_name, "confirm_reuse_import_filename", self.confirm_reuse_checkbox.isChecked())
         set_preference(self.app_name, "xml_browse_directory", self.xml_browse_dir_edit.text())
         set_preference(self.app_name, "merge_polygon_size", self.viamerge_edit.text())

@@ -1,6 +1,7 @@
 """Vendor-independent GDS pin inventory and dedicated EM marker generation."""
 import hashlib
 import json
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -82,14 +83,16 @@ def inspect(gds_path, rows, cellname=''):
     return lib,cell,inventory(cell,rows)
 
 
-def write(gds_path, output, rows, selection, cellname='', start_layer=240, stackup='', mapfile='',preparation=None):
+def write(gds_path, output, rows, selection, cellname='', start_layer=240, stackup='', mapfile='',preparation=None,overwrite=False):
     """selection is ordered (inventory ID, reviewed name); originals are retained."""
     source=Path(gds_path);output=Path(output);manifest=output.with_suffix('.ports.json')
     protected=[source]+[Path(x) for x in (stackup,mapfile) if x]
-    for target in (output,manifest):
-        if any(target.resolve()==p.resolve() or (target.exists() and p.exists() and target.samefile(p)) for p in protected):
-            raise ValueError('Refusing to overwrite an input file')
-        if target.exists():raise ValueError('Output already exists; choose a new output name: '+str(target))
+    if preparation:protected.append(Path(preparation['source']['path']))
+    try:
+        from .generated_outputs import check_outputs,publish_outputs
+    except ImportError:
+        from generated_outputs import check_outputs,publish_outputs
+    states=check_outputs((output,manifest),protected,overwrite=overwrite)
     if not selection or len({i for i,n in selection})!=len(selection):
         raise ValueError('Select distinct pin shapes')
     if not 0<=start_layer<=65535:raise ValueError('Start layer must be in 0..65535')
@@ -120,10 +123,11 @@ def write(gds_path, output, rows, selection, cellname='', start_layer=240, stack
               input_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),
               cell=cell.name,unit_m=lib.unit,ports=ports,mapping=[list(r) for r in rows])
     if preparation is not None:data['raw_preparation']=preparation
-    # Exclusive creation protects existing files, including races after the checks above.
-    with output.open('xb') as stream:lib.write_gds(stream)
-    data['output_sha256']=hashlib.sha256(output.read_bytes()).hexdigest()
-    with manifest.open('x') as stream:json.dump(data,stream,indent=2);stream.write('\n')
+    with tempfile.TemporaryDirectory(prefix='.setupem_ports_',dir=output.parent) as directory:
+        staged=Path(directory)/'ports.gds';lib.write_gds(str(staged))
+        data['output_sha256']=hashlib.sha256(staged.read_bytes()).hexdigest()
+        staged_manifest=Path(directory)/'ports.json';staged_manifest.write_text(json.dumps(data,indent=2)+'\n')
+        publish_outputs(((staged,output),(staged_manifest,manifest)),overwrite=overwrite,expected=states)
     return data
 
 

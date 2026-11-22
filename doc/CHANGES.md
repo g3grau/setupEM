@@ -1,5 +1,11 @@
 # Unreleased — execution Settings tab
 
+- Generated GDS outputs can now be replaced, renamed or cancelled when they
+  already exist. Preferences → Files optionally enables replacement without
+  asking for simplification and EM-port preparation, including sidecars.
+  Original inputs remain protected; staged generation preserves previous results
+  when generation fails.
+
 - Added New/Open Project actions and reset dependent output paths/names when the
   Raw GDS changes, detaching the previous config and active port geometry.
 - Ordinary via/in-plane FDTD models now use the shared concurrent thread/job

@@ -8,10 +8,14 @@ from PySide6.QtWidgets import (QGroupBox,QWidget,QVBoxLayout,QHBoxLayout,QFormLa
     QPushButton,QLabel,QCheckBox,QSpinBox,QPlainTextEdit,QFileDialog,QApplication)
 try:
     from .raw_preparation import verified_report
+    from .generated_output_dialog import choose_output
+    from .generated_outputs import file_state,publish_outputs
     from .datatype_filters import parse_datatypes,format_datatypes
     from .path_config import browse_start,project_directory,output_filename
 except ImportError:
     from raw_preparation import verified_report
+    from generated_output_dialog import choose_output
+    from generated_outputs import file_state,publish_outputs
     from datatype_filters import parse_datatypes,format_datatypes
     from path_config import browse_start,project_directory,output_filename
 
@@ -221,11 +225,18 @@ class RawInputSection(QGroupBox):
 
     def run(self):
         if self.process and self.process.state()!=QProcess.NotRunning:return
-        self.log.setVisible(True);self.log.clear()
         try:
             options=self.options()
-            for path in (Path(options['output']),Path(options['output']).with_suffix('.prep.json'),Path(options['output']).with_suffix('.prep.log')):
-                if path.exists():raise ValueError('Output already exists; choose a new cleaned GDS name: '+str(path))
+            output,overwrite=choose_output(self,self.window.APP_NAME,options['output'],('.prep.json','.prep.log'),
+                (options['source'],options['stackup'],options.get('mapfile')))
+            if output is None:
+                self.status.setText('Simplification cancelled; previous generated files retained.');return
+            if output!=options['output']:
+                self.cleaned.setText(output);self.suggest_prepared();options=self.options()
+            self._running_overwrite=overwrite
+            log_path=Path(options['output']).with_suffix('.prep.log')
+            self._previous_log_state={str(log_path):file_state(log_path)}
+            self.log.setVisible(True);self.log.clear()
             Path(options['output']).parent.mkdir(parents=True,exist_ok=True)
             self.temporary=tempfile.TemporaryDirectory(prefix='.setupem_raw_job_',dir=Path(options['output']).parent)
             job=Path(self.temporary.name)/'job.json';job.write_text(json.dumps(options))
@@ -235,7 +246,7 @@ class RawInputSection(QGroupBox):
             self._running_options=options
             self.run_button.setEnabled(False);self.ports_button.setEnabled(False);self.stop_button.setEnabled(True)
             self.status.setText('Simplifying raw layout in the background…')
-            self.process.start(sys.executable,['-u',str(Path(__file__).with_name('raw_preparation_worker.py')),str(job)])
+            self.process.start(sys.executable,['-u',str(Path(__file__).with_name('raw_preparation_worker.py')),str(job)]+(['--overwrite'] if overwrite else []))
         except (ValueError,OSError) as error:self.status.setText('Cannot simplify: '+str(error))
 
     def read_output(self):
@@ -248,9 +259,12 @@ class RawInputSection(QGroupBox):
         if code==0 and status==QProcess.NormalExit:
             try:
                 report=verified_report(self._running_options)
-                with Path(report['output']['path']).with_suffix('.prep.log').open('x') as stream:stream.write(self.log.toPlainText()+'\n')
+                log_path=Path(report['output']['path']).with_suffix('.prep.log')
+                with tempfile.TemporaryDirectory(prefix='.setupem_log_',dir=log_path.parent) as directory:
+                    staged=Path(directory)/'console.log';staged.write_text(self.log.toPlainText()+'\n')
+                    publish_outputs(((staged,log_path),),overwrite=self._running_overwrite,expected=self._previous_log_state)
                 self.status.setText('Cleaned GDS ready. Continue with step 2 to review pins and create the _ems.gds.')
-            except (OSError,ValueError) as error:self.status.setText('Cannot verify prepared layout: '+str(error))
+            except (OSError,ValueError,RuntimeError) as error:self.status.setText('Cannot finalize prepared layout: '+str(error))
         else:self.status.setText('Simplification failed or stopped. Simulation inputs were not changed; see the log.')
         self.suggest_prepared();self.update_file_buttons()
 

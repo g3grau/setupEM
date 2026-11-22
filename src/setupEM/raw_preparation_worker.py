@@ -9,4 +9,4 @@ except ImportError:
 
 if __name__=='__main__':
     job=Path(sys.argv[1])
-    preprocess(json.loads(job.read_text(encoding='utf-8')),work_parent=job.parent)
+    preprocess(json.loads(job.read_text(encoding='utf-8')),work_parent=job.parent,overwrite='--overwrite' in sys.argv[2:])

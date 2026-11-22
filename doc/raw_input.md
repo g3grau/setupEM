@@ -22,7 +22,8 @@ python -m pip install /path/to/gds_prepare_for_EM
    cutout limit, excluded layers and any filler datatypes to remove.
 4. Click **1. Simplify raw GDS**. A background process streams its log. This
    writes the cleaned GDS, `.prep.json` provenance and `.prep.log`; the existing
-   simulation input stays unchanged. Existing output files are protected.
+   simulation input stays unchanged. If outputs already exist, choose **Replace
+   generated files**, **Choose another filename**, or **Cancel**.
 5. Click **2. Create EM-port GDS…**. The existing named-port dialog
    receives the verified cleaned GDS, resolved cell and stream map. Load or edit
    pin/drawing/label mappings if needed, **Find pins**, review/select shapes and
@@ -87,7 +88,12 @@ which file the solver uses. It does not repeat preparation.
 resolved cell, units, selected drawing pairs, protected pin pairs, output hash
 and simplification tool identity. Before port preparation, setupEM verifies that
 the inputs, settings and cleaned output still match that report. Changed inputs
-require a new preprocessing output. No output is overwritten automatically.
+require preprocessing again. Existing outputs require confirmation by default.
+Under **Preferences → Files**, enable **Replace generated GDS files and their
+sidecars without asking** to allow automatic replacement. This also applies to
+EM-port preparation and **Tools → Simplify GDS**. Original input files remain
+protected. Generation uses staged files so a failed generation retains the
+previous outputs; ordinary publication failures restore replaced files.
 
 The `_ems.ports.json` manifest includes the full raw-preparation report, linking
 the prepared EM markers back through the cleaned layout to the original Cadence
