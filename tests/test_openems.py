@@ -28,8 +28,9 @@ def values():
                 adaptive_mesh_iterations=4, conductor_model='solve_inside_skin')
 
 
+@pytest.mark.parametrize('budgeted',[False,True])
 @pytest.mark.parametrize('action,solves,xmls', [('--prepare-only', 0, 2), ('--preview-only', 0, 0), ('', 2, 0)])
-def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_path, action, solves, xmls):
+def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_path, action, solves, xmls,budgeted):
     calls = dict(solves=0, previews=0, xmls=0, sij=[], snp=0, setups=0)
     class Ports:
         def __init__(self):
@@ -84,10 +85,24 @@ def test_generated_workflow_never_solves_prepare_or_preview(monkeypatch, tmp_pat
         calculate_Sij=sij, write_snp=snp, touchstone_provenance=provenance)
     monkeypatch.setitem(sys.modules, 'gds2openEMS', fake)
     monkeypatch.setitem(sys.modules, 'openEMS', types.SimpleNamespace(openEMS=FDTD))
-    model = tmp_path/'model.py';model.write_text(openems_script_text(values(), ports()))
+    def scheduled(settings):
+        calls['scheduled']=calls.get('scheduled',0)+1
+        assert settings['openems_execution']['total_threads']==32
+        assert settings['openems_execution']['device_threads']==16
+        return 'scheduled.s2p'
+    fake.util_fdtd_run=types.SimpleNamespace(run=scheduled)
+    v=values()
+    if budgeted:v['openems_execution']=dict(total_threads=32,device_threads=16,calibration_threads=4,max_jobs=8)
+    model = tmp_path/'model.py';model.write_text(openems_script_text(v, ports()))
     monkeypatch.setattr(sys, 'argv', [str(model)]+([action] if action else []))
     monkeypatch.chdir(tmp_path)
+    if budgeted and not action:
+        with pytest.raises(SystemExit) as result:runpy.run_path(str(model),run_name='__main__')
+        assert result.value.code==0
+        assert calls.get('scheduled')==1 and calls['solves']==calls['setups']==0
+        return
     runpy.run_path(str(model), run_name='__main__')
+    assert not calls.get('scheduled')
     assert calls['solves'] == solves
     assert calls['provenance_captured']
     assert calls['xmls'] == xmls

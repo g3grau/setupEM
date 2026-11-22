@@ -18,7 +18,7 @@ controls; process and thread counts no longer live there.
 These controls are independent of the FEM parallel settings. The energy-decay
 criterion and frequency-sample count remain with the FDTD controls.
 
-### Calibrated box-wall scheduling
+### Concurrent FDTD scheduling
 
 The defaults are **16 device threads**, **4 calibration threads**, a **32-thread
 total budget**, and at most **8 concurrent jobs**. Existing positive device
@@ -27,14 +27,17 @@ defaults allow eight calibration excitations or two device excitations at once.
 Calibration standards finish before the device phase starts. Independent port
 excitations within each phase run in separate processes and output directories.
 
-These controls apply to calibrated box-wall runs. Ordinary openEMS workflows
-continue running sequentially. Set the total budget to **0** to retain sequential
-box-wall execution with the ordinary solver thread setting. Concurrent GPU jobs
+These controls apply to ordinary via/in-plane port runs as well as calibrated
+boxwall runs. Ordinary models schedule their device excitations directly; boxwall
+models first complete calibration standards. Set the total budget to **0** for
+sequential execution with the ordinary solver thread setting. Concurrent GPU jobs
 are not supported; select CPU or set maximum jobs to 1.
 
-The GUI writes `openems_execution` into the project and generated box-wall script.
-Update **both setupEM and gds2openEMS** on the server. Job-labelled progress is
-streamed to the GUI; each excitation retains `sub-*/boxwall_solver.log`. A failed
+The GUI writes `openems_execution` into the project and generated openEMS script.
+Update **both setupEM and gds2openEMS** on the server and regenerate older
+ordinary model scripts to enable scheduling. Job-labelled progress is
+streamed to the GUI; each excitation retains `sub-*/fdtd_solver.log` for ordinary runs or
+`sub-*/boxwall_solver.log` for calibrated runs. A failed
 job stops remaining work and terminates active workers. GUI Stop also terminates
 workers. Completed excitation data remain available under the existing cache
 rules. Cross-project calibration reuse is not introduced here.

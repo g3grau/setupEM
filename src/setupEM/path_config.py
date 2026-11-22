@@ -65,6 +65,8 @@ def configured_path(section,key,project=None):
 def project_directory(window=None,source=''):
     """Resolve project context locally to a window, never from the process cwd."""
     if window is not None:
+        root=getattr(window,'_project_root',None)
+        if root:return str(Path(root).resolve())
         config=getattr(window,'user_inputs_file',None)
         if config and Path(config).is_file():
             folder=Path(config).resolve().parent

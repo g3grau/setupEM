@@ -4353,7 +4353,7 @@ class CreateModelTabBase(QWidget):
             if gdsfile != "":
                 gds_dir = os.path.normcase(os.path.dirname(gdsfile))
             else:
-                gds_dir = os.getcwd()
+                gds_dir = project_directory(self.MainWindow) or os.getcwd()
             if os.path.isdir(gds_dir):
                 kind='fdtd' if getattr(self.MainWindow,'OpenEMSMode',False) else 'fem'
                 self._suggested_targetdir=output_directory(kind,self.MainWindow,gdsfile,gds_dir)
@@ -4814,6 +4814,13 @@ class MainWindowBase(QMainWindow):
         self.new_action = QAction("New", self)
         self.new_action.setShortcut(QKeySequence.New)
         self.load_settings_action = QAction("Load Config ...", self)
+        if self.APP_NAME=='setupEM':
+            self.new_action.setText('New empty configuration')
+            self.new_project_action=QAction('New Project from Raw GDS…',self)
+            self.new_project_action.setShortcut(QKeySequence('Ctrl+Shift+N'))
+            self.new_project_action.triggered.connect(self.new_project_from_raw)
+            self.load_settings_action.setText('Open Project / Config…')
+            self.load_settings_action.setShortcut(QKeySequence.Open)
         self.save_action = QAction("Save Config ...", self)
         # a *.py model: its settings for a new, generated model (Import), or the
         # script itself, with only the changed values written back (Edit in place)
@@ -4842,6 +4849,7 @@ class MainWindowBase(QMainWindow):
         self.preferences_action.triggered.connect(lambda: self.open_preferences_dialog())
         exit_action.triggered.connect(self.close)
 
+        if self.APP_NAME=='setupEM':file_menu.addAction(self.new_project_action)
         file_menu.addAction(self.new_action)
         file_menu.addSeparator()
         file_menu.addAction(self.load_settings_action)
@@ -5062,6 +5070,13 @@ class MainWindowBase(QMainWindow):
 
     # ---------- User input persistence ----------
 
+    def new_project_from_raw(self):
+        if __package__ in (None,''):
+            from project_workflow import new_project_dialog
+        else:
+            from .project_workflow import new_project_dialog
+        new_project_dialog(self)
+
     def new_configuration(self):
         """File > New: reset to the same blank state as a freshly started app.
         Mirrors __init__'s startup sequence (empty saved_values, no ports/thermal
@@ -5077,6 +5092,7 @@ class MainWindowBase(QMainWindow):
         self.backup_before_overwrite = None
         self.saved_values.clear()
         self.user_inputs_file=None
+        self._project_root=None
         self.materials_list = None
         self.dielectrics_list = None
         self.metals_list = None
@@ -5109,11 +5125,22 @@ class MainWindowBase(QMainWindow):
         return browse_start('project')
 
     def load_configuration_dialog(self):
+        if self.APP_NAME=='setupEM':
+            if __package__ in (None,''):
+                from project_workflow import ensure_idle,prepare_folders
+            else:
+                from .project_workflow import ensure_idle,prepare_folders
+            try:ensure_idle(self)
+            except ValueError as error:
+                QMessageBox.warning(self,'Cannot switch project',str(error));return
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Config File", self._open_dialog_folder(),
                                                    filter=f"*.{self.CONFIG_SUFFIX};;Python model code *.py")
         # we can load JSON or Python models, decide which suffix we have
         if file_path:
             self.open_file(file_path)
+            if self.APP_NAME=='setupEM' and getattr(self,'user_inputs_file',None)==file_path:
+                try:prepare_folders(self)
+                except OSError as error:QMessageBox.warning(self,'Cannot prepare project folders',str(error))
 
     def _warn_wrong_app_file(self, file_path, owner_app):
         owner_kind = next(kind for kind, app in MODEL_KIND_APPS.items() if app == owner_app)
@@ -5148,6 +5175,7 @@ class MainWindowBase(QMainWindow):
                 # leaves a script edited in place as it was
                 self.hide_info_bar()
                 self._stop_preserve_mode()
+                self._project_root=None
                 self.create_model_tab._suggested_targetdir=None
                 self.protected_source_model_path = None
                 self.backup_before_overwrite = None
@@ -6630,6 +6658,7 @@ class MainWindowBase(QMainWindow):
                 json.dump(struct, f, indent=4)
             self._add_recent_file(RECENT_SETTINGS_KEY, filename)
             self.user_inputs_file=os.path.abspath(filename)
+            self._project_root=None
             QMessageBox.information(self, "Saved", f"Config saved to {filename}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save config to {filename}: {e}")

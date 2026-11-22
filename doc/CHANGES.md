@@ -1,5 +1,10 @@
 # Unreleased — execution Settings tab
 
+- Added New/Open Project actions and reset dependent output paths/names when the
+  Raw GDS changes, detaching the previous config and active port geometry.
+- Ordinary via/in-plane FDTD models now use the shared concurrent thread/job
+  budget, with separate worker logs and full-matrix assembly after all ports finish.
+
 - Compacted the port editor: marker layer, impedance and voltage share one row;
   a Via/In-plane/Boxwall selector shows only the relevant port controls.
 

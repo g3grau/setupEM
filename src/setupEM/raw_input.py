@@ -24,6 +24,7 @@ class RawInputSection(QGroupBox):
         help=QLabel('Preparation workflow: Raw GDS → Cleaned GDS → EM-port GDS. Uses the XML stackup above. '
                     'Step 2 creates the EM-port file and selects it as the active simulation input below. Show previews a file; Use for simulation selects it.')
         help.setWordWrap(True);layout.addWidget(help)
+        self._accepted_source=''
         self.source=QLineEdit();self.source.setPlaceholderText('Please choose a file ===>')
         self.source.setStyleSheet(file_tab.gds_file_edit.styleSheet())
         self.source.setToolTip('Original Cadence GDS export. Simplification writes a separate generated GDS.')
@@ -89,6 +90,21 @@ class RawInputSection(QGroupBox):
 
     def suggest_output(self):
         source=Path(self.source.text()).expanduser()
+        active=self.window.saved_values.get('GdsFile','')
+        if (source.is_file() and not self._accepted_source and active
+                and Path(active).expanduser().resolve()==source.resolve()):
+            self._accepted_source=str(source.resolve())
+        if source.is_file() and str(source.resolve())!=self._accepted_source:
+            try:
+                try:
+                    from .project_workflow import adopt_raw_layout
+                except ImportError:
+                    from project_workflow import adopt_raw_layout
+                previous=self._accepted_source
+                if not adopt_raw_layout(self.window,source):self.source.setText(previous)
+            except (ValueError,OSError) as error:
+                self.source.setText(self._accepted_source);self.status.setText('Cannot switch project: '+str(error))
+            return
         if source.is_file() and (not self.cleaned.text() or getattr(self,'_suggested_output','')==self.cleaned.text()):
             self._suggested_output=output_filename('gds',source.stem+'_cleaned.gds',self.window,str(source),str(source.parent));self.cleaned.setText(self._suggested_output)
         if source.is_file() and not self.mapfile.text():
@@ -163,6 +179,8 @@ class RawInputSection(QGroupBox):
             fill_mincount=self.mincount.value(),max_hole_area=self.maxarea.text(),via_merge_size=self.via.text())
 
     def load_state(self,state):
+        source=state.get('source','')
+        self._accepted_source=str(Path(source).expanduser().resolve()) if source else ''
         for key,widget,default in [('source',self.source,''),('mapfile',self.mapfile,''),('output',self.cleaned,''),('prepared',self.prepared,''),('cell',self.cell,''),
             ('drawing',self.drawing,'0'),('drop',self.drop,''),('excluded',self.excluded,''),('fill_minsize',self.minsize,'1'),
             ('fill_maxsize',self.maxsize,'20'),('max_hole_area',self.maxarea,'1'),('via_merge_size',self.via,'0')]:widget.setText(str(state.get(key,default)))

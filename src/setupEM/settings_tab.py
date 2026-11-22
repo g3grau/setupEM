@@ -18,7 +18,7 @@ class SettingsTab(QWidget):
         form.addRow('Total concurrent thread budget',self.openems_total_threads)
         form.addRow('Calibration threads per excitation',self.openems_calibration_threads)
         form.addRow('Maximum concurrent jobs',self.openems_max_jobs)
-        note=QLabel('The shared budget applies to calibrated box-wall CPU runs. Calibration jobs run first, then device port excitations. Each job has its own memory allocation; reduce maximum jobs if needed. Set the budget to 0 for sequential execution.')
+        note=QLabel('The shared CPU budget applies to ordinary and boxwall port excitations. Boxwall calibration jobs run first, then device jobs. Each job has its own memory allocation; reduce maximum jobs if needed. Set the budget to 0 for sequential execution.')
         note.setWordWrap(True);form.addRow(note)
         self.openems_engine = QComboBox()
         self.openems_engine.addItem('CPU (default)', 'cpu')

@@ -60,6 +60,26 @@ project output directories and needs no extra environment variables. Restart set
 after importing to initialize tool fields from the new defaults; browse dialogs
 read updated defaults directly.
 
+## New and Open Project
+
+**File → New Project from Raw GDS…** (`Ctrl+Shift+N`) selects an original layout,
+creates the output folders named in the directory presets and saves
+`<original>.simcfg` beside it. The current stackup/map, solver and numerical
+settings are retained; old active simulation input and port definitions are
+cleared. Cleaned/prepared filenames and the simulator target/name are reset for
+the new layout. An existing project config is opened instead of overwritten.
+
+**File → Open Project / Config…** (`Ctrl+O`) opens an existing simcfg and prepares
+its configured output folders. **New empty configuration** retains the former
+blank-state reset operation (`Ctrl+N`). Projects use the directory presets; import
+the example snippet if generated outputs should be organized in subfolders.
+
+Choosing another valid Raw GDS through Browse or editing its path also switches
+the project context and resets its dependent destinations/names. It detaches the
+old config and active design, so subsequent preparation cannot silently run the
+old GDS or update the previous project's config. Existing files/results stay on
+disk. A running preparation/solve must be stopped before switching projects.
+
 ## Project-relative directories
 
 Absolute presets keep their absolute meaning. Other directory presets, including

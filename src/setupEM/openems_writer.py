@@ -50,16 +50,17 @@ def openems_script_text(values, ports):
     if not math.isfinite(merging) or merging < 0:
         raise ValueError('Via merging distance must be finite and nonnegative.')
     boxwall = v.get('openems_boxwall') or None
-    execution = v.get('openems_execution') if boxwall else None
+    execution = v.get('openems_execution')
     if execution:
         for key in ('total_threads','device_threads','calibration_threads','max_jobs'):
             value=execution.get(key)
             if isinstance(value,bool) or not isinstance(value,int) or value<1:
-                raise ValueError('Box-wall execution '+key+' must be a positive integer.')
-        if max(execution['device_threads'],execution['calibration_threads'])>execution['total_threads']:
+                raise ValueError('openEMS execution '+key+' must be a positive integer.')
+        required=[execution['device_threads']]+([execution['calibration_threads']] if boxwall else [])
+        if max(required)>execution['total_threads']:
             raise ValueError('Each job thread count must fit within the total concurrent thread budget.')
         if v.get('openems_engine')=='gpu' and execution['max_jobs']>1:
-            raise ValueError('Concurrent box-wall jobs require the CPU engine; set maximum concurrent jobs to 1 for GPU.')
+            raise ValueError('Concurrent FDTD jobs require the CPU engine; set maximum concurrent jobs to 1 for GPU.')
     aircut = v.get('openems_aircut') or None
     if boxwall and aircut:
         raise ValueError('Use box-wall calibration and RDL air cuts as separate experiments for now.')
@@ -194,6 +195,13 @@ raise SystemExit(0)
 settings = generated_geometry.add_rdl_aircut(settings, settings['openems_aircut'])
 print('RDL air-cut geometry:', settings['rdl_aircut_status'], flush=True)
 """
+    if execution:
+        text += '''
+if not args.preview_only and not args.prepare_only:
+    from gds2openEMS import util_fdtd_run as fdtd_runner
+    print('S-parameters:', fdtd_runner.run(settings), flush=True)
+    raise SystemExit(0)
+'''
     text += '''
 # A full S matrix requires all ports to be excited, once per column.
 if not simulation_ports.portcount:
