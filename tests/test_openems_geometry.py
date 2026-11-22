@@ -69,9 +69,9 @@ def test_gui_features_roundtrip_and_solver_visibility(monkeypatch):
  w=module.MainWindow()
  try:
   w.setOpenEMSMode()
-  assert not w.openems_boxwall_group.isHidden()
+  assert w.openems_boxwall_group.isHidden()
   assert not w.openems_aircut_group.isHidden()
-  w.openems_boxwall_group.setChecked(True)
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('boxwall'))
   w.openems_signal.setCurrentText('M6');w.openems_return.setCurrentText('M1')
   w.openems_reference_setback.setValue(13.485)
   from PySide6.QtWidgets import QTableWidgetItem
@@ -88,16 +88,16 @@ def test_gui_features_roundtrip_and_solver_visibility(monkeypatch):
   w.openems_wall_side.setCurrentText('xmax')
   openems_ui.save(w)
   assert w.saved_values['openems_boxwall']=={'ports':{'1':dict(config(),reference_plane_setback=13.485)}}
-  w.openems_boxwall_group.setChecked(False)
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('via'))
   openems_ui.load(w)
-  assert w.openems_boxwall_group.isChecked()
+  assert (w.ports_tab.port_kind_box.currentData()=='boxwall')
   assert w.openems_signal.currentText()=='M6'
   assert w.openems_reference_setback.value()==13.485
   w.setPalaceMode()
   assert w.openems_boxwall_group.isHidden() and w.openems_aircut_group.isHidden()
   assert not table.isColumnHidden(6) and table.isColumnHidden(9)
   w.setOpenEMSMode()
-  assert w.openems_boxwall_group.isChecked()
+  assert (w.ports_tab.port_kind_box.currentData()=='boxwall')
  finally:
   w._script_dirty=False;w.close();module.saved_values.clear()
 
@@ -138,20 +138,28 @@ def test_boxwall_editor_is_independent_per_port_and_disables_via_controls(monkey
   w.setOpenEMSMode()
   rows=[dict(portnumber=i,source_layernum=240+i,from_layername='M1',to_layername='M6',direction='Z') for i in (1,2)]
   w.ports_tab.update_port_from_import(rows);table=w.ports_tab.portslist
-  table.selectRow(0);w.openems_boxwall_group.setChecked(True)
+  table.selectRow(0);w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('boxwall'))
   w.openems_signal.setCurrentText('M6');w.openems_return.setCurrentText('M1')
   assert not w.ports_tab.from_box.isEnabled() and not w.ports_tab.to_box.isEnabled()
+  assert w.ports_tab.from_box.isHidden() and w.ports_tab.to_box.isHidden()
+  assert w.ports_tab.direction_box.isHidden() and not w.openems_boxwall_group.isHidden()
   assert not w.ports_tab.direction_box.isEnabled()
   assert 'ground' in w.ports_tab.from_label.text() and 'signal' in w.ports_tab.to_label.text()
   table.selectRow(1)
-  assert not w.openems_boxwall_group.isChecked()
+  assert not (w.ports_tab.port_kind_box.currentData()=='boxwall')
   assert w.ports_tab.from_box.isEnabled() and w.ports_tab.to_box.isEnabled()
   assert w.ports_tab.direction_box.isEnabled()
+  assert not w.ports_tab.from_box.isHidden() and w.openems_boxwall_group.isHidden()
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('inplane'))
+  assert w.ports_tab.direction_box.currentText()=='X'
+  assert w.ports_tab.from_box.isHidden() and not w.ports_tab.target_box.isHidden()
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('via'))
+  assert w.ports_tab.direction_box.currentText()=='Z' and not w.ports_tab.from_box.isHidden()
   openems_ui.save(w)
   assert set(w.saved_values['openems_boxwall']['ports'])=={'1'}
   assert not table.isColumnHidden(6)  # Ordinary via direction remains visible in a mixed table.
   assert table.item(0,14).text()=='Boxwall feed' and table.item(1,14).text()=='Via port'
-  w.openems_boxwall_group.setChecked(True);w.openems_wall_side.setCurrentText('ymin')
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('boxwall'));w.openems_wall_side.setCurrentText('ymin')
   w.openems_signal.setCurrentText('M7');w.openems_return.setCurrentText('M2')
   w.openems_feed_length.setValue(140);w.openems_feed_width.setValue(4)
   w.openems_calibration_report.setPlainText('Last checked complete model')
@@ -160,7 +168,7 @@ def test_boxwall_editor_is_independent_per_port_and_disables_via_controls(monkey
   assert w.openems_signal.currentText()=='M6' and w.openems_return.currentText()=='M1'
   assert w.openems_wall_side.currentText()=='xmax' and w.openems_feed_length.value()==100
   assert w.openems_feed_width.value()==0
-  w.openems_boxwall_group.setChecked(False)
+  w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData('via'))
   openems_ui.save(w)
   saved=w.saved_values['openems_boxwall']
   assert set(saved['ports'])=={'2'} and saved['ports']['2']['side']=='ymin'
@@ -171,7 +179,7 @@ def test_boxwall_editor_is_independent_per_port_and_disables_via_controls(monkey
   assert w.openems_signal.currentText()=='M7' and not w.ports_tab.from_box.isEnabled()
   # Reading back config selects only this port; legacy shared files still migrate.
   openems_ui.load(w)
-  assert w.openems_boxwall_group.isChecked() and w.openems_feed_width.value()==4
+  assert (w.ports_tab.port_kind_box.currentData()=='boxwall') and w.openems_feed_width.value()==4
   w.saved_values['openems_boxwall']=config();openems_ui.load(w);openems_ui.save(w)
   assert set(w.saved_values['openems_boxwall']['ports'])=={'1','2'}
  finally:

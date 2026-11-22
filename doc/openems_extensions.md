@@ -13,13 +13,14 @@ Changing conda activation does not update an already running GUI: restart it.
 
 ## Calibrated box-wall feeds (Ports tab)
 
-Select a port row, then check **Port N: calibrated boxwall feed** to configure
-that port. Its wall side/direction, signal metal, return kind/layer, feed length,
+Select a port row, then choose **Boxwall feed** in **Port type** to configure
+that port. Marker layer, impedance and voltage share the first row. Its wall side/direction, signal metal, return kind/layer, feed length,
 launch gap, width and reference setback are independent of other ports. The table
 shows **Port type** and each feed's actual wall/access direction. Switching rows
-loads the selected port's settings; it does not change the other ports. Uncheck
-only that port to use its ordinary via/in-plane definition. Via From/To controls
-and ordinary direction controls are disabled while a boxwall feed is selected.
+loads the selected port's settings; it does not change the other ports. Choose
+**Via port** or **In-plane port** to use an ordinary definition for that port.
+Only relevant controls are shown: via From/To layers, an in-plane signal layer,
+or the boxwall feed panel. Ordinary direction/layer controls are hidden in boxwall mode.
 For via ports, **From** is normally ground/reference and **To** is normally signal;
 the direction sign controls excitation polarity.
 

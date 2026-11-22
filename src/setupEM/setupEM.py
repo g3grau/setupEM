@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QSplitter, QStyle,
     )
 from PySide6.QtGui import QAction, QColor, QTextCharFormat, QFont, QFontMetrics, QSyntaxHighlighter, QPainter, QPen, QActionGroup
-from PySide6.QtCore import Qt, QRegularExpression, QProcess, QRect, QStandardPaths, QTimer
+from PySide6.QtCore import Qt, QRegularExpression, QProcess, QRect, QStandardPaths, QTimer, QSignalBlocker
 
 
 # Local dev: if the gds2palace_ihp_sg13g2 fork is checked out as a sibling repo next to
@@ -501,12 +501,10 @@ class PortsTab(QWidget):
         # details rigis top group
         self.details_layout = QVBoxLayout()
 
-        left_label_width = 230
-
         self.sourcelayer_layout =  QHBoxLayout()
-        label = QLabel("Port geometry on layer number")
+        label = QLabel("Marker layer (GDS)")
         self.sourcelayer_layout.addWidget(label)
-        label.setFixedWidth(left_label_width)
+        label.setFixedWidth(135)
         # no hardcoded "201" default - selectRow(0) below fires before the
         # itemSelectionChanged connection even exists, so this would otherwise
         # sit unrefreshed (looking like a real suggestion) until the user
@@ -516,15 +514,19 @@ class PortsTab(QWidget):
         self.sourcelayer_edit.setFixedWidth(80)
         self.sourcelayer_edit.setStyleSheet(EDIT_STYLE_REQUIRED)
         self.sourcelayer_layout.addWidget(self.sourcelayer_edit)
-        label = QLabel(" in GDSII file")
-        self.sourcelayer_layout.addWidget(label)
         self.sourcelayer_layout.addStretch()
         self.details_layout.addLayout(self.sourcelayer_layout)
 
         self.direction_layout =  QHBoxLayout()
-        label = QLabel("Port direction")
-        self.direction_layout.addWidget(label)
-        label.setFixedWidth(left_label_width)
+        self.port_kind_box=QComboBox()
+        for name,key in [('Via port','via'),('In-plane port','inplane'),('Boxwall feed','boxwall')]:
+            self.port_kind_box.addItem(name,key)
+        self.port_kind_box.setFixedWidth(170)
+        self.port_kind_box.model().item(2).setEnabled(False)
+        label=QLabel('Port type');label.setFixedWidth(135)
+        self.direction_layout.addWidget(label);self.direction_layout.addWidget(self.port_kind_box)
+        self.direction_label=QLabel('Direction')
+        self.direction_layout.addWidget(self.direction_label)
         self.direction_box = QComboBox()
         self.direction_box.setFixedWidth(80)
         self.direction_box.setStyleSheet(COMBO_STYLE_REQUIRED)
@@ -536,9 +538,9 @@ class PortsTab(QWidget):
         self.details_layout.addLayout(self.direction_layout)
 
         self.targetlayer_layout =  QHBoxLayout()
-        self.target_label = QLabel("Target layer for in-plane port ")
+        self.target_label = QLabel("Signal layer")
         self.targetlayer_layout.addWidget(self.target_label)
-        self.target_label.setFixedWidth(left_label_width)
+        self.target_label.setFixedWidth(135)
         self.target_box = QComboBox()
         self.target_box.setFixedWidth(150)
         self.target_box.setStyleSheet(COMBO_STYLE_REQUIRED)
@@ -550,9 +552,9 @@ class PortsTab(QWidget):
 
 
         self.viaport_layout =  QHBoxLayout()
-        self.from_label = QLabel("Via port from layer (ground)")
+        self.from_label = QLabel("From layer (ground)")
         self.viaport_layout.addWidget(self.from_label)
-        self.from_label.setFixedWidth(left_label_width)
+        self.from_label.setFixedWidth(135)
         self.from_box = QComboBox()
         self.from_box.setFixedWidth(150)
         self.from_box.setStyleSheet(COMBO_STYLE_REQUIRED)
@@ -574,28 +576,27 @@ class PortsTab(QWidget):
 
 
         self.impedance_layout =  QHBoxLayout()
-        label = QLabel("Port impedance")
+        label = QLabel("Impedance (Ω)")
         self.impedance_layout.addWidget(label)
-        label.setFixedWidth(left_label_width)
+        label.setFixedWidth(100)
         self.impedance_edit = QLineEdit("50")
         self.impedance_edit.setFixedWidth(80)
         self.impedance_edit.setStyleSheet(EDIT_STYLE_OPTIONAL)
         self.impedance_layout.addWidget(self.impedance_edit)
 
-        self.impedance_layout.addStretch()
-        self.details_layout.addLayout(self.impedance_layout)
+        self.sourcelayer_layout.insertLayout(self.sourcelayer_layout.count()-1,self.impedance_layout)
 
         self.voltage_layout =  QHBoxLayout()
-        label = QLabel("Port voltage")
+        label = QLabel("Voltage")
         self.voltage_layout.addWidget(label)
-        label.setFixedWidth(left_label_width)
+        label.setFixedWidth(60)
         self.voltage_edit = QLineEdit("1")
         self.voltage_edit.setFixedWidth(80)
         self.voltage_edit.setStyleSheet(EDIT_STYLE_OPTIONAL)
         self.voltage_layout.addWidget(self.voltage_edit)
 
         self.voltage_layout.addWidget(QLabel(" (1=active, 0=passive)"))
-        self.details_layout.addLayout(self.voltage_layout)
+        self.sourcelayer_layout.insertLayout(self.sourcelayer_layout.count()-1,self.voltage_layout)
 
 
         self.buttons_layout = QHBoxLayout()
@@ -698,33 +699,37 @@ class PortsTab(QWidget):
             box.setStyleSheet(box.styleSheet()+'\nQComboBox:disabled { background-color: #ededed; color: #888; }')
         # callback when direction changed, so that we can show/hide layer choices
         def on_direction_changed(direction):
-            boxwall=self.MainWindow.OpenEMSMode and hasattr(self.MainWindow,'openems_boxwall_group') and self.MainWindow.openems_boxwall_group.isChecked()
+            boxwall=self.MainWindow.OpenEMSMode and self.port_kind_box.currentData()=='boxwall'
             for widget in (self.from_label,self.from_box,self.to_label,self.to_box,self.target_label,self.target_box):
                 widget.setEnabled(not boxwall)
-            if "Z" in direction or boxwall:
-                # hide target layer label and edit
-                self.target_label.hide()
-                self.target_box.hide()
-                self.from_label.show()
-                self.from_box.show()
-                self.to_label.show()
-                self.to_box.show()
-            else:
-                # show target layer label and edit
-                self.target_label.show()
-                self.target_box.show()
-                self.from_label.hide()
-                self.from_box.hide()
-                self.to_label.hide()
-                self.to_box.hide()
-
+            if not boxwall:
+                with QSignalBlocker(self.port_kind_box):
+                    self.port_kind_box.setCurrentIndex(0 if 'Z' in direction.upper() else 1)
+            for widget in (self.direction_label,self.direction_box,self.direction_note):widget.setVisible(not boxwall)
+            for widget in (self.from_label,self.from_box,self.to_label,self.to_box):widget.setVisible(not boxwall and 'Z' in direction.upper())
+            for widget in (self.target_label,self.target_box):widget.setVisible(not boxwall and 'Z' not in direction.upper())
+            if hasattr(self.MainWindow,'openems_boxwall_group'):
+                self.MainWindow.openems_boxwall_group.setVisible(boxwall)
 
         self.direction_box.currentTextChanged.connect(on_direction_changed)
         self._update_direction_controls=lambda:on_direction_changed(self.direction_box.currentText())
+        self.port_kind_box.currentIndexChanged.connect(self._port_kind_changed)
         self.direction_box.setCurrentIndex(2)
 
         # set this AFTER apply_port_values_to_table(), not earlier!
         self.portslist.itemSelectionChanged.connect(self.portslist_selection_changed)
+
+
+    def _port_kind_changed(self):
+        kind=self.port_kind_box.currentData()
+        if kind!='boxwall':
+            direction=self.direction_box.currentText()
+            if kind=='via' and 'Z' not in direction.upper():self.direction_box.setCurrentText('Z')
+            elif kind=='inplane' and 'Z' in direction.upper():self.direction_box.setCurrentText('X')
+        if hasattr(self.MainWindow,'openems_boxwall_group') and self.MainWindow.OpenEMSMode:
+            openems_ui.feed_edited(self.MainWindow)
+        self._update_direction_controls()
+        self._update_direction_lock(max(self.portslist.currentRow(),0))
 
 
     def apply_from_return(self):
@@ -924,11 +929,13 @@ class PortsTab(QWidget):
 
     def _update_direction_lock(self, row):
         """a port on a port wall points into the layout: its direction is set by the side, not by the user"""
-        if self.MainWindow.OpenEMSMode and hasattr(self.MainWindow,'openems_boxwall_group') and self.MainWindow.openems_boxwall_group.isChecked():
+        if self.MainWindow.OpenEMSMode and self.port_kind_box.currentData()=='boxwall':
+            self.port_kind_box.setEnabled(True)
             self.direction_box.setEnabled(False)
             self.direction_note.setText(' Boxwall feed: direction follows this port’s outward wall side')
             return
         side = self._wall_of_port.get(row + 1)
+        self.port_kind_box.setEnabled(side is None or self.MainWindow.OpenEMSMode)
         self.direction_box.setEnabled(side is None)
         if side and row + 1 in self._converted_port:
             self.direction_note.setText(f" on port wall {side}: used as a gap port on {self._converted_port[row + 1]}, "

@@ -1,5 +1,8 @@
 # Unreleased — execution Settings tab
 
+- Compacted the port editor: marker layer, impedance and voltage share one row;
+  a Via/In-plane/Boxwall selector shows only the relevant port controls.
+
 - Boxwall feeds are now configured per port, with independent walls, layers and
   fixture dimensions, and may coexist with ordinary via/in-plane ports. Via
   controls are disabled for a selected boxwall feed; From/To labels explain the

@@ -107,7 +107,8 @@ def update(window):
     m.refined_override_btn.setEnabled(not openems)
     layout_visible(m.boundary_layout, not openems)
     window.ports_tab.portwall_group.setVisible(not openems)
-    window.openems_boxwall_group.setVisible(openems)
+    window.ports_tab.port_kind_box.model().item(2).setEnabled(openems)
+    window.openems_boxwall_group.setVisible(openems and boxwall_selected(window))
     window.openems_aircut_group.setVisible(openems)
     m.AMR_group.setVisible(window.PalaceMode)
     m.Elmer_group.setVisible(window.ElmerMode)
@@ -152,12 +153,11 @@ def save(window):
 def install_geometry(w):
     """Optional generated geometry, isolated from Palace's port-wall controls."""
     g=QGroupBox('Selected port: calibrated boxwall feed (experimental)')
-    g.setCheckable(True);g.setChecked(False);w.openems_boxwall_group=g
+    w.openems_boxwall_group=g
     body=QWidget();body_layout=QVBoxLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
     settings=QWidget();form=QVBoxLayout(settings);fields=QGridLayout();form.addLayout(fields)
     form.setSizeConstraint(QLayout.SetMinimumSize)
     fields.setColumnStretch(1,1);fields.setColumnStretch(3,1)
-    body.hide();g.toggled.connect(body.setVisible)
     w.openems_wall_side=QComboBox();w.openems_wall_side.addItems(['xmax','xmin','ymax','ymin'])
     w.openems_signal=QComboBox();w.openems_signal.setEditable(True)
     w.openems_return_kind=QComboBox()
@@ -209,7 +209,6 @@ def install_geometry(w):
     w.openems_calibration_group.setMaximumHeight(230)
     w.create_model_tab.actions_layout.insertWidget(1,w.openems_calibration_group)
     w.openems_calibration_group.hide()
-    g.toggled.connect(lambda checked: feed_edited(w))
     w.ports_tab.lists_splitter.insertWidget(0,g)
     w.ports_tab.lists_splitter.setStretchFactor(0,2)
     w.ports_tab.lists_splitter.setStretchFactor(1,3)
@@ -217,7 +216,6 @@ def install_geometry(w):
     w.ports_tab.lists_splitter.setSizes([420,350,160])
     w.ports_tab.lists_splitter.handle(1).setToolTip('Drag to share the height between calibration messages and the port overview')
     w.ports_tab.lists_splitter.handle(2).setToolTip('Drag to share the height between the port overview and port walls')
-    g.toggled.connect(lambda _: refresh_layer_choices(w))
     w.openems_return_kind.currentIndexChanged.connect(lambda _: refresh_layer_choices(w))
     g.hide()
     w._openems_port_feeds={}
@@ -273,6 +271,10 @@ def refresh_layer_choices(w):
     fill(w.openems_return,returns)
 
 
+def boxwall_selected(w):
+    return w.ports_tab.port_kind_box.currentData()=='boxwall'
+
+
 def _populated_ports(w):
     table=w.ports_tab.portslist
     return [row+1 for row in range(table.rowCount()) if table.item(row,2) is not None and table.item(row,2).text()]
@@ -298,7 +300,7 @@ def feed_edited(w):
     if row<0:return
     entries=port_feed_configs(w)
     w._openems_legacy_feed=None
-    if w.openems_boxwall_group.isChecked():entries[str(row+1)]=feed_controls(w)
+    if boxwall_selected(w):entries[str(row+1)]=feed_controls(w)
     else:entries.pop(str(row+1),None)
     w._openems_port_feeds=entries
     w.ports_tab._update_direction_controls()
@@ -313,7 +315,10 @@ def select_port_feed(w,row):
     w._loading_port_feed=True
     try:
         w.openems_boxwall_group.setTitle(f'Port {row+1}: calibrated boxwall feed (experimental)')
-        w.openems_boxwall_group.setChecked(bool(c))
+        with QSignalBlocker(w.ports_tab.port_kind_box):
+            direction=w.ports_tab.direction_box.currentText().upper()
+            mode='boxwall' if c and w.OpenEMSMode else ('via' if 'Z' in direction else 'inplane')
+            w.ports_tab.port_kind_box.setCurrentIndex(w.ports_tab.port_kind_box.findData(mode))
         w.openems_wall_side.setCurrentText(c.get('side','xmax'))
         w.openems_signal.setCurrentText(c.get('signal_layer',w.ports_tab.target_box.currentText()))
         w.openems_return_kind.setCurrentIndex(1 if c.get('return_kind')=='background' else 0)
