@@ -11,7 +11,15 @@ class SettingsTab(QWidget):
         form = QFormLayout(self.openems_group)
         self.openems_threads = self._count('Automatic (solver default)')
         self.openems_threads.setToolTip('Automatic omits numThreads and lets openEMS select/tune the thread count. A positive value fixes it. No -1 value is sent to the solver.')
-        form.addRow('Solver threads', self.openems_threads)
+        form.addRow('Device threads per excitation', self.openems_threads)
+        self.openems_total_threads=self._count('Sequential (no shared budget)');self.openems_total_threads.setValue(32)
+        self.openems_calibration_threads=self._count('');self.openems_calibration_threads.setMinimum(1);self.openems_calibration_threads.setValue(4)
+        self.openems_max_jobs=self._count('');self.openems_max_jobs.setMinimum(1);self.openems_max_jobs.setValue(8)
+        form.addRow('Total concurrent thread budget',self.openems_total_threads)
+        form.addRow('Calibration threads per excitation',self.openems_calibration_threads)
+        form.addRow('Maximum concurrent jobs',self.openems_max_jobs)
+        note=QLabel('The shared budget applies to calibrated box-wall CPU runs. Calibration jobs run first, then device port excitations. Each job has its own memory allocation; reduce maximum jobs if needed. Set the budget to 0 for sequential execution.')
+        note.setWordWrap(True);form.addRow(note)
         self.openems_engine = QComboBox()
         self.openems_engine.addItem('CPU (default)', 'cpu')
         self.openems_engine.addItem('GPU (requires compatible openEMS build)', 'gpu')
@@ -48,7 +56,11 @@ class SettingsTab(QWidget):
 
     def load_values(self):
         v = self.window.saved_values
-        self.openems_threads.setValue(int(v.get('numThreads') or 0))
+        execution=v.get('openems_execution',dict(total_threads=32,calibration_threads=4,device_threads=v.get('numThreads') or 16,max_jobs=8)) or {}
+        self.openems_threads.setValue(int(execution.get('device_threads',v.get('numThreads',16)) or 0))
+        self.openems_total_threads.setValue(int(execution.get('total_threads',0)))
+        self.openems_calibration_threads.setValue(int(execution.get('calibration_threads',4)))
+        self.openems_max_jobs.setValue(int(execution.get('max_jobs',8)))
         self.openems_engine.setCurrentIndex(1 if v.get('openems_engine') == 'gpu' else 0)
         for key, box in self._palace_boxes():
             box.setValue(int(v.get(key) or 0))
@@ -63,6 +75,9 @@ class SettingsTab(QWidget):
         if self.window.OpenEMSMode:
             v['numThreads'] = self.openems_threads.value() or None
             v['openems_engine'] = self.openems_engine.currentData()
+            v['openems_execution']=(dict(total_threads=self.openems_total_threads.value(),
+                device_threads=self.openems_threads.value(),calibration_threads=self.openems_calibration_threads.value(),
+                max_jobs=self.openems_max_jobs.value()) if self.openems_total_threads.value() else None)
         if self.window.PalaceMode:
             for key, box in self._palace_boxes():
                 if box.value() or key in v:

@@ -11,11 +11,11 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLabe
 try:
     from .dc_extension import extend_dc,export_dc
     from .lumped_models import TOOLS,default_repository,prepare_model_run
-    from .path_config import browse_start
+    from .path_config import output_directory,output_filename
 except ImportError:
     from dc_extension import extend_dc,export_dc
     from lumped_models import TOOLS,default_repository,prepare_model_run
-    from path_config import browse_start
+    from path_config import output_directory,output_filename
 
 
 class DCExtensionTab(QWidget):
@@ -66,7 +66,11 @@ class DCExtensionTab(QWidget):
     def export(self):
         if self.result is None:return
         source=Path(self.report['source']['path'])
-        path,_=QFileDialog.getSaveFileName(self,'Save DC-extended derivative',str(source.with_name(source.stem+'_dc'+source.suffix)),f'Touchstone (*.s{self.result.nports}p)')
+        default=output_filename('touchstone',source.stem+'_dc'+source.suffix,self.analysis.owner,str(source),str(source.parent))
+        try:Path(default).parent.mkdir(parents=True,exist_ok=True)
+        except OSError as error:
+            self.details.appendPlainText('Cannot create Touchstone output directory: '+str(error));return
+        path,_=QFileDialog.getSaveFileName(self,'Save DC-extended derivative',default,f'Touchstone (*.s{self.result.nports}p)')
         if not path:return
         try:
             output,report=export_dc(self.result,self.report,path)
@@ -118,7 +122,9 @@ class LumpedModelsTab(QWidget):
 
     def start(self):
         if self.process and self.process.state()!=QProcess.NotRunning:return
-        default=browse_start('output',fallback=str(Path(self.analysis.source['path']).parent) if self.analysis.source else '')
+        try:default=output_directory('models',self.analysis.owner,self.analysis.source['path'] if self.analysis.source else '',str(Path(self.analysis.source['path']).parent) if self.analysis.source else '',create=True)
+        except OSError as error:
+            self.log.setPlainText('Cannot create model output directory: '+str(error));return
         path=QFileDialog.getExistingDirectory(self,'Choose parent for a new model-run folder',str(default))
         if not path:return
         folder=Path(path)/('lumped_'+self.tool.currentData()+'_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f'))

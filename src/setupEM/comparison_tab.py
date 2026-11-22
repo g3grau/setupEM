@@ -8,11 +8,11 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QLabel,QTableWidg
 try:
     from .network_comparison import ComparisonEntry,compare_networks,export_comparison
     from .plot_window import PlotWindow
-    from .path_config import browse_start
+    from .path_config import browse_start,project_directory,output_directory
 except ImportError:
     from network_comparison import ComparisonEntry,compare_networks,export_comparison
     from plot_window import PlotWindow
-    from path_config import browse_start
+    from path_config import browse_start,project_directory,output_directory
 
 
 DEFAULT_PLOT_OPTIONS=dict(entries=[],mode='inductor',minimum_GHz=.1,maximum_GHz=0.,
@@ -90,7 +90,7 @@ class ComparisonTab(QWidget):
             self.figure.suptitle('Previous comparison — settings changed');self.canvas.draw_idle()
 
     def add_files(self):
-        paths,_=QFileDialog.getOpenFileNames(self,'Add Touchstone results',browse_start('touchstone',self.analysis.files.currentText()),'Touchstone (*.s*p *.S*P);;All files (*)')
+        paths,_=QFileDialog.getOpenFileNames(self,'Add Touchstone results',browse_start('touchstone',self.analysis.files.currentText(),project=project_directory(self.analysis.owner)),'Touchstone (*.s*p *.S*P);;All files (*)')
         for path in paths:self.add_entry(dict(path=path))
 
     def add_loaded(self):
@@ -233,7 +233,10 @@ class ComparisonTab(QWidget):
 
     def export(self):
         if self.result is None:return
-        parent=QFileDialog.getExistingDirectory(self,'Choose parent for a new comparison output folder',browse_start('output'))
+        try:default=output_directory('output',self.analysis.owner,create=True)
+        except OSError as error:
+            self.status.setText('Cannot create comparison output directory: '+str(error));return
+        parent=QFileDialog.getExistingDirectory(self,'Choose parent for a new comparison output folder',default)
         if not parent:return
         try:
             folder=export_comparison(self.result,Path(parent)/('comparison_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')),self._plotted_options)

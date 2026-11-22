@@ -40,6 +40,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt
+if __package__ in (None,''):
+    from path_config import output_filename
+else:
+    from .path_config import output_filename
 
 # get_preference() itself has no dependency on this module, so importing it
 # here is not circular - setup_common.py only ever imports this module
@@ -128,7 +132,7 @@ class SimplifyGdsDialog(QDialog):
         default_output = ""
         if gds_path:
             base, ext = os.path.splitext(gds_path)
-            default_output = f"{base}_simplified{ext or '.gds'}"
+            default_output = output_filename('gds',os.path.basename(base)+'_simplified'+(ext or '.gds'),MainWindow,gds_path,os.path.dirname(gds_path))
 
         app_name = self.MainWindow.APP_NAME
         port_layer_min, port_layer_max = _port_layer_range(app_name)
@@ -421,6 +425,7 @@ class SimplifyGdsDialog(QDialog):
 
         captured_stdout = io.StringIO()
         try:
+            os.makedirs(os.path.dirname(os.path.abspath(output_path)),exist_ok=True)
             with contextlib.redirect_stdout(captured_stdout):
                 run_simplify(
                     gds_path, layers_to_process, output_path, cellname=cellname,

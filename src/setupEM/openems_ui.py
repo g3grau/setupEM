@@ -131,7 +131,7 @@ def load(window):
         return
     m, v = window.mesh_tab, window.saved_values
     m.openems_energy.setValue(float(v.get('energy_limit', -50)))
-    m.openems_threads.setValue(int(v.get('numThreads') or 0))
+    window.settings_tab.load_values()
     m.openems_numfreq.setValue(int(v.get('numfreq', 401)))
     m.openems_engine.setCurrentIndex(1 if v.get('openems_engine') == 'gpu' else 0)
     load_geometry(window)
@@ -140,6 +140,7 @@ def load(window):
 
 
 def save(window):
+    window.settings_tab.save_values()
     save_geometry(window)
     m, v = window.mesh_tab, window.saved_values
     v.update(energy_limit=m.openems_energy.value(), numThreads=m.openems_threads.value() or None,

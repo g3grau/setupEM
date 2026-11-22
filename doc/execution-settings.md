@@ -6,17 +6,42 @@ controls; process and thread counts no longer live there.
 
 ## openEMS
 
-- **Solver threads → Automatic (solver default)** stores `numThreads: null` in the
+- **Device threads per excitation → Automatic (solver default)** stores `numThreads: null` in the
   project and omits the setting in exported Python. gds2openEMS then uses its
   default of zero, which delegates thread selection/tuning to openEMS. No `-1`
-  sentinel is passed to the solver. Old projects with `numThreads: 0` also select
-  Automatic.
+  sentinel is passed to the solver. Automatic is available with the shared
+  budget disabled; budgeted jobs need explicit positive thread counts.
 - A positive value requests that fixed thread count.
 - **Execution engine** selects the default CPU engine or GPU. GPU requires a
   suitable openEMS build; it is not enabled by changing the UI alone.
 
 These controls are independent of the FEM parallel settings. The energy-decay
 criterion and frequency-sample count remain with the FDTD controls.
+
+### Calibrated box-wall scheduling
+
+The defaults are **16 device threads**, **4 calibration threads**, a **32-thread
+total budget**, and at most **8 concurrent jobs**. Existing positive device
+thread settings are retained. Both the thread budget and job limit apply: these
+defaults allow eight calibration excitations or two device excitations at once.
+Calibration standards finish before the device phase starts. Independent port
+excitations within each phase run in separate processes and output directories.
+
+These controls apply to calibrated box-wall runs. Ordinary openEMS workflows
+continue running sequentially. Set the total budget to **0** to retain sequential
+box-wall execution with the ordinary solver thread setting. Concurrent GPU jobs
+are not supported; select CPU or set maximum jobs to 1.
+
+The GUI writes `openems_execution` into the project and generated box-wall script.
+Update **both setupEM and gds2openEMS** on the server. Job-labelled progress is
+streamed to the GUI; each excitation retains `sub-*/boxwall_solver.log`. A failed
+job stops remaining work and terminates active workers. GUI Stop also terminates
+workers. Completed excitation data remain available under the existing cache
+rules. Cross-project calibration reuse is not introduced here.
+
+Memory is allocated separately for each solver job. Reduce maximum jobs if the
+thread budget would allow too many large models to run at once. The budget counts
+reserved solver threads; ancillary BLAS pools in workers are limited to one thread.
 
 ## Palace
 

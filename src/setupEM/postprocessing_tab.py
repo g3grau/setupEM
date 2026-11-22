@@ -12,13 +12,13 @@ try:
     from .postprocessing_tools import DCExtensionTab,LumpedModelsTab
     from .comparison_tab import ComparisonTab,DEFAULT_PLOT_OPTIONS
     from .plot_window import PlotWindow
-    from .path_config import browse_start
+    from .path_config import browse_start,project_directory,output_filename
 except ImportError:
     from network_parameters import ExtractionSpec,load_touchstone,extract_parameters,export_parameters
     from postprocessing_tools import DCExtensionTab,LumpedModelsTab
     from comparison_tab import ComparisonTab,DEFAULT_PLOT_OPTIONS
     from plot_window import PlotWindow
-    from path_config import browse_start
+    from path_config import browse_start,project_directory,output_filename
 
 
 INDUCTOR_PLOTS=[('L_H','Differential L (nH)',1e9),('R_ohm','Differential R (ohm)',1),('Q','Differential Q',1)]
@@ -127,7 +127,7 @@ class PostprocessingTab(QWidget):
             self.canvas.draw_idle()
 
     def browse(self):
-        path,_=QFileDialog.getOpenFileName(self,'Load Touchstone network',browse_start('touchstone',self.files.currentText()),'Touchstone (*.s*p *.S*P);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Load Touchstone network',browse_start('touchstone',self.files.currentText(),project=project_directory(self.owner)),'Touchstone (*.s*p *.S*P);;All files (*)')
         if path:self.files.setEditText(path);self.load_file()
 
     def find_current(self):
@@ -270,7 +270,11 @@ class PostprocessingTab(QWidget):
 
     def export(self):
         if self.result is None:return
-        default=str(Path(self.source['path']).with_name(Path(self.source['path']).stem+'_'+self.mode.currentData()+'_parameters.csv'))
+        default=output_filename('output',Path(self.source['path']).stem+'_'+self.mode.currentData()+'_parameters.csv',self.owner,self.source['path'],str(Path(self.source['path']).parent))
+        try:
+            if default:Path(default).parent.mkdir(parents=True,exist_ok=True)
+        except OSError as error:
+            self.status.setText('Cannot create parameter output directory: '+str(error));return
         path,_=QFileDialog.getSaveFileName(self,'Export extracted parameters',default,'CSV (*.csv)')
         if not path:return
         try:

@@ -7,10 +7,10 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLine
     QFileDialog,QMessageBox,QHeaderView)
 if __package__ in (None, ''):
     import pin_preparation as pins
-    from path_config import browse_start
+    from path_config import browse_start,project_directory,output_filename
 else:
     from . import pin_preparation as pins
-    from .path_config import browse_start
+    from .path_config import browse_start,project_directory,output_filename
 
 
 class PreparePortsDialog(QDialog):
@@ -39,7 +39,7 @@ class PreparePortsDialog(QDialog):
         form=QFormLayout();layout.addLayout(form)
         self.start=QSpinBox();self.start.setRange(0,65535);self.start.setValue(240)
         form.addRow('First candidate marker layer (occupied layers skipped)',self.start)
-        row=QHBoxLayout();self.output=QLineEdit(output or str(Path(self.source.text()).with_name(Path(self.source.text()).stem+'_ems.gds')))
+        row=QHBoxLayout();self.output=QLineEdit(output or output_filename('gds',Path(self.source.text()).stem+'_ems.gds',window,self.source.text(),str(Path(self.source.text()).parent)))
         row.addWidget(self.output);browse=QPushButton('Save as…');row.addWidget(browse);browse.clicked.connect(self.choose_output)
         form.addRow('Prepared GDS',row)
         hint=QLabel('Port numbers follow the selected table rows. Writes datatype 0 markers and net-name labels, plus a .ports.json manifest. '
@@ -54,7 +54,7 @@ class PreparePortsDialog(QDialog):
                 self.mapfile.setText(str(candidate));self.read_map();break
 
     def load_map(self):
-        name,_=QFileDialog.getOpenFileName(self,'Technology stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent)),'All files (*)')
+        name,_=QFileDialog.getOpenFileName(self,'Technology stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent),project=project_directory(self.window)),'All files (*)')
         if name:self.mapfile.setText(name);self.read_map()
 
     def read_map(self):
@@ -118,6 +118,7 @@ class PreparePortsDialog(QDialog):
                 preparation=verified_report(self.preparation_options)
                 if Path(self.source.text()).resolve()!=Path(preparation['output']['path']):
                     raise ValueError('Port source differs from the verified cleaned layout.')
+            Path(self.output.text()).expanduser().parent.mkdir(parents=True,exist_ok=True)
             self.result_data=pins.write(self.source.text(),self.output.text(),self.rows(),selection,
                 cellname=self.cell.text(),start_layer=self.start.value(),stackup=stackup,mapfile=self.mapfile.text(),preparation=preparation)
             self.accept()

@@ -79,7 +79,7 @@ def test_gui_dialog_defaults_and_tool_paths(configured,monkeypatch):
         monkeypatch.setattr(QFileDialog,'getOpenFileName',lambda *args,**kwargs:(starts.append(args[2]) or '', ''))
         window.file_tab.browse_gds_file();window.file_tab.browse_XML_file();window.file_tab.raw_input.browse_source()
         window.file_tab.raw_input.browse_map();window.postprocessing_tab.browse();window.broadband_tab.browse()
-        assert starts[0]==str(root/'gds') and starts[2]==str(root/'gds')
+        assert starts[0]==str(root/'gds') and starts[2]==str(root/'projects')
         assert starts[3]==str(root/'maps') and starts[4:]==[str(root/'sp')]*2
         # Explicit XML preference may precede the snippet; unset preferences use it.
         assert starts[1]==str(root/'stackup')
@@ -109,3 +109,56 @@ def test_preferences_import_button_installs_validated_snippet(configured,tmp_pat
         assert errors and config.read_bytes()==previous
     finally:
         dialog.reject();window._script_dirty=False;window.close();module.saved_values.clear()
+
+
+def test_relative_presets_follow_each_project_and_keep_tool_paths_stable(configured,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    _,config,data=configured
+    data['directories'].update(gds='./generated_gds',touchstone='./SP',models='./models',fdtd='./fdtd',fem='./fem')
+    data['tools']['lumpedmodel']='./tools/lumpedmodel'
+    config.write_text(json.dumps(data))
+    first=tmp_path/'first';second=tmp_path/'second';first.mkdir();second.mkdir()
+    windows=[]
+    for root in (first,second):
+        file=root/'project.simcfg';file.write_text('{}')
+        windows.append(SimpleNamespace(user_inputs_file=str(file),saved_values={}))
+    monkeypatch.chdir(tmp_path)  # changing cwd cannot change the resolved paths
+    for window,root in zip(windows,(first,second)):
+        project=paths.project_directory(window)
+        assert project==str(root)
+        assert paths.output_directory('gds',window)==str(root/'generated_gds')
+        assert paths.output_directory('models',window)==str(root/'models')
+        assert not (root/'generated_gds').exists()
+        assert paths.browse_start('gds',project=project)==str(root)
+    assert paths.configured_path('tools','lumpedmodel')==str(config.parent/'tools/lumpedmodel')
+    created=paths.output_directory('models',windows[0],create=True)
+    assert Path(created).is_dir() and not (second/'models').exists()
+    # A snapshot beside generated solver code points back to the project root.
+    child=first/'fdtd';child.mkdir();snapshot=child/'run.simcfg';snapshot.write_text('{"project_root":".."}')
+    windows[0].user_inputs_file=str(snapshot)
+    assert paths.output_directory('touchstone',windows[0])==str(first/'SP')
+
+
+def test_specific_file_presets_and_relative_expansion(configured,tmp_path,monkeypatch):
+    root,config,data=configured
+    stack=root/'stackup'/'chosen.xml';stack.write_text('<stackup/>')
+    data['directories']['stackup']=str(stack)
+    data['directories']['gds']='./${GENERATED_FOLDER}'
+    config.write_text(json.dumps(data));monkeypatch.setenv('GENERATED_FOLDER','generated')
+    assert paths.browse_start('stackup')==str(stack)
+    assert paths.configured_path('directories','gds',project=str(tmp_path))==str(tmp_path/'generated')
+    assert './${GENERATED_FOLDER}' in config.read_text()
+
+
+def test_collected_networks_preserve_prior_results(tmp_path):
+    source=tmp_path/'solver';source.mkdir();target=tmp_path/'SP'
+    network=source/'inductor.s2p';network.write_text('original network')
+    first=paths.collect_touchstone([network],target)
+    assert first==[str(target/network.name)]
+    assert paths.collect_touchstone([network],target)==first
+    network.write_text('new network')
+    second=paths.collect_touchstone([network],target)
+    assert second!=first and Path(first[0]).read_text()=='original network'
+    assert Path(second[0]).read_text()=='new network'
+    assert paths.collect_touchstone([network],target)==second
+    assert len(list(target.iterdir()))==2

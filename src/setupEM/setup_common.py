@@ -34,10 +34,10 @@ in setupEM.py / setupThermal.py, not here.
 
 if __package__ in (None, ''):
     from datatype_filters import parse_datatypes, format_datatypes
-    from path_config import browse_start,expand_path
+    from path_config import browse_start,expand_path,project_directory,output_directory,output_filename,configured_path
 else:
     from .datatype_filters import parse_datatypes, format_datatypes
-    from .path_config import browse_start,expand_path
+    from .path_config import browse_start,expand_path,project_directory,output_directory,output_filename,configured_path
 
 import sys, os, json, pathlib, ast, webbrowser, io, contextlib, subprocess, shutil, glob, re, copy, tempfile, time
 import importlib.metadata
@@ -897,7 +897,7 @@ class FileInputTab(QWidget):
         if not os.path.isdir(previous_directory):
             previous_directory = ""
 
-        filename, _ = QFileDialog.getOpenFileName(self, "Select GDSII File", browse_start('gds',previous_directory), "*.gds;;*.*")
+        filename, _ = QFileDialog.getOpenFileName(self, "Select GDSII File", browse_start('gds',previous_directory,project=project_directory(self.MainWindow)), "*.gds;;*.*")
         if filename:
             self.set_gds_file(filename)
             self.update_cellnames_from_gds(filename)
@@ -950,9 +950,9 @@ class FileInputTab(QWidget):
             else:
                 package_data = os.path.join(os.path.dirname(__file__), "data")
                 if os.path.exists(package_data):
-                    previous_directory = browse_start('stackup',fallback=package_data)
+                    previous_directory = browse_start('stackup',fallback=package_data,project=project_directory(self.MainWindow))
                 else:
-                    previous_directory = browse_start('stackup')
+                    previous_directory = browse_start('stackup',project=project_directory(self.MainWindow))
 
         filename, _ = QFileDialog.getOpenFileName(self, "Select XML Stackup File", previous_directory, "*.xml;;*.*")
         if filename:
@@ -3729,6 +3729,7 @@ class CreateModelTabBase(QWidget):
         self.label2.setFixedWidth(120)
         self.targetdir_layout.addWidget(self.label2)
         self.targetdir_edit = QLineEdit("")
+        self.targetdir_edit.textEdited.connect(lambda _:setattr(self,'_suggested_targetdir',None))
         self.targetdir_edit.setStyleSheet(EDIT_STYLE_REQUIRED)
         self.targetdir_layout.addWidget(self.targetdir_edit)
         self.targetdir_btn = QPushButton("Browse ...")
@@ -4171,6 +4172,7 @@ class CreateModelTabBase(QWidget):
                     f.write(self._in_place_source)
             return
         self._backup_before_first_overwrite(pymodel_filename)
+        pathlib.Path(pymodel_filename).parent.mkdir(parents=True,exist_ok=True)
         with open(pymodel_filename, "w", encoding="utf-8") as f:
             f.write(code)
 
@@ -4307,10 +4309,11 @@ class CreateModelTabBase(QWidget):
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Target Directory",
-            browse_start('output',self.targetdir_edit.text()),
+            browse_start('fdtd' if getattr(self.MainWindow,'OpenEMSMode',False) else 'fem',self.targetdir_edit.text(),project=project_directory(self.MainWindow)),
             QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
         )
         if directory:
+            self._suggested_targetdir=None
             self.targetdir_edit.setText(str(directory))
             self.MainWindow.saved_values['sim_path'] = str(directory)
 
@@ -4346,17 +4349,19 @@ class CreateModelTabBase(QWidget):
         self.modelname_edit.setText(model_basename)
 
         sim_path = saved_values.get('sim_path', '')
-        if sim_path == "":
+        if sim_path == "" or (sim_path==getattr(self,'_suggested_targetdir',None) and self.MainWindow.script_model is None):
             if gdsfile != "":
                 gds_dir = os.path.normcase(os.path.dirname(gdsfile))
             else:
                 gds_dir = os.getcwd()
             if os.path.isdir(gds_dir):
-                self.targetdir_edit.setText(gds_dir)
+                kind='fdtd' if getattr(self.MainWindow,'OpenEMSMode',False) else 'fem'
+                self._suggested_targetdir=output_directory(kind,self.MainWindow,gdsfile,gds_dir)
+                self.targetdir_edit.setText(self._suggested_targetdir)
             else:
                 self.targetdir_edit.setText("")
         else:
-            if os.path.exists(sim_path):
+            if sim_path:
                 self.targetdir_edit.setText(sim_path)
 
     def preview_model(self):
@@ -5071,6 +5076,7 @@ class MainWindowBase(QMainWindow):
         self.protected_source_model_path = None
         self.backup_before_overwrite = None
         self.saved_values.clear()
+        self.user_inputs_file=None
         self.materials_list = None
         self.dielectrics_list = None
         self.metals_list = None
@@ -5142,6 +5148,7 @@ class MainWindowBase(QMainWindow):
                 # leaves a script edited in place as it was
                 self.hide_info_bar()
                 self._stop_preserve_mode()
+                self.create_model_tab._suggested_targetdir=None
                 self.protected_source_model_path = None
                 self.backup_before_overwrite = None
 
@@ -5219,6 +5226,18 @@ class MainWindowBase(QMainWindow):
                     # update internal data structure
                     saved_values.clear()
                     saved_values.update(data.get("saved_values"))
+                    preset_kind=data.get('solver_directory_preset')
+                    if preset_kind in ('fdtd','fem') and configured_path('directories',preset_kind):
+                        saved_values['sim_path']=output_directory(preset_kind,self)
+                        self.create_model_tab._suggested_targetdir=saved_values['sim_path']
+                    for key,kind in [('GdsFile','gds'),('SubstrateFile','stackup')]:
+                        value=saved_values.get(key,'')
+                        if value and not os.path.isfile(value):
+                            preset=configured_path('directories',kind,project=project_directory(self))
+                            candidate=pathlib.Path(preset) if preset else None
+                            if candidate and candidate.is_dir():candidate=candidate/os.path.basename(value.replace('\\','/'))
+                            if candidate and candidate.is_file() and candidate.name==os.path.basename(value.replace('\\','/')):
+                                saved_values[key]=str(candidate)
                     # GdsFile/SubstrateFile paths saved on a different OS/network-drive
                     # mapping often don't resolve here - fall back to a same-named file
                     # next to this settings file before populating the tabs with them
@@ -5293,6 +5312,7 @@ class MainWindowBase(QMainWindow):
                     "palace_blas_threads": "palace_blas_threads",
                     "numfreq": "numfreq",
                     "numThreads": "numThreads",
+                    "openems_execution": "openems_execution",
                     "energy_limit": "energy_limit",
                     "Boundaries": "openems_boundaries",
                     "engine": "openems_engine",
@@ -5886,6 +5906,12 @@ class MainWindowBase(QMainWindow):
         struct = {"application": self.APP_NAME, "data_format": "1.0", "saved_values": self.saved_values,
                   "written_with": os.path.basename(script_path)}
         struct.update(self.native_config_extra_struct())
+        project=project_directory(self)
+        routed=bool(configured_path('directories','fdtd') or configured_path('directories','fem'))
+        if routed and project:
+            struct['project_root']=os.path.relpath(project,os.path.dirname(os.path.abspath(path)))
+            if self.saved_values.get('sim_path')==getattr(self.create_model_tab,'_suggested_targetdir',None):
+                struct['solver_directory_preset']='fdtd' if getattr(self,'OpenEMSMode',False) else 'fem'
         if os.path.exists(path):
             # a layout tool's own keys stay (a split region's piece name, fingerprint and pieces section)
             for key, value in existing.items():
@@ -5896,6 +5922,26 @@ class MainWindowBase(QMainWindow):
         except OSError:
             return None
         self._link_config_to_script(script_path, path)
+        # The adjacent config is a solver snapshot; the user's project config
+        # stays beside the original layout, with a relative link to this script.
+        if routed and project and self.script_model is None and getattr(self,'piece_set',None) is None:
+            source=getattr(self,'user_inputs_file',None)
+            project_config=(source if source and os.path.dirname(os.path.abspath(source))==project
+                else os.path.join(project,os.path.basename(path)))
+            if not same_path(project_config,path):
+                try:
+                    existing_project={}
+                    if os.path.exists(project_config):
+                        with open(project_config,encoding='utf-8') as stream:existing_project=json.load(stream)
+                        if not isinstance(existing_project,dict) or existing_project.get('application')!=self.APP_NAME:return path
+                    project_data=dict(existing_project,**struct)
+                    if 'solver_directory_preset' not in struct:project_data.pop('solver_directory_preset',None)
+                    project_data.pop('written_with',None)
+                    project_data['project_root']='.'
+                    project_data['model_script']=os.path.relpath(script_path,project)
+                    with open(project_config,'w',encoding='utf-8') as stream:json.dump(project_data,stream,indent=4)
+                    self.user_inputs_file=project_config
+                except (OSError,ValueError):pass
         return path
 
     def _ask_continue_with_script(self, file_path, script, differences=None):
@@ -6573,10 +6619,15 @@ class MainWindowBase(QMainWindow):
                         "data_format": "1.0"}
             struct["saved_values"] = self.saved_values
             struct.update(self.native_config_extra_struct())
+            struct['project_root']='.'
+            if self.saved_values.get('sim_path')==getattr(self.create_model_tab,'_suggested_targetdir',None):
+                kind='fdtd' if getattr(self,'OpenEMSMode',False) else 'fem'
+                if configured_path('directories',kind):struct['solver_directory_preset']=kind
 
             with open(filename, "w") as f:
                 json.dump(struct, f, indent=4)
             self._add_recent_file(RECENT_SETTINGS_KEY, filename)
+            self.user_inputs_file=os.path.abspath(filename)
             QMessageBox.information(self, "Saved", f"Config saved to {filename}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to save config to {filename}: {e}")
@@ -6591,7 +6642,7 @@ class MainWindowBase(QMainWindow):
         # make sure all tabs save their values
         # set gds filename as default for saving config
         gds_name = self.saved_values.get("GdsFile")
-        default_config = gds_name.replace('.gds', '.' + self.CONFIG_SUFFIX)
+        default_config = os.path.join(project_directory(self),os.path.basename(gds_name).replace('.gds', '.' + self.CONFIG_SUFFIX))
         file_path, _ = QFileDialog.getSaveFileName(self, "Select Config File", default_config, filter=f"{self.APP_NAME} (*.{self.CONFIG_SUFFIX})")
         # Ensure filename ends with CONFIG_SUFFIX
         if file_path:
@@ -6634,7 +6685,7 @@ class MainWindowBase(QMainWindow):
         # clear target directory if is the gds directory, but keep if other value
         gds_dir = os.path.dirname(saved_values['GdsFile'])
         target_dir = saved_values['sim_path']
-        if target_dir.upper() == gds_dir.upper():
+        if target_dir.upper() == gds_dir.upper() or target_dir==getattr(self.create_model_tab,'_suggested_targetdir',None):
             saved_values['sim_path'] = ''
 
     # load technology stackup data

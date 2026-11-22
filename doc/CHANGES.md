@@ -1,5 +1,15 @@
 # Unreleased — execution Settings tab
 
+- Added project-relative path presets for generated GDS, FDTD/FEM runs,
+  Touchstone results, circuit-model fits and plots. Project configs stay beside
+  the original layout; generated solver snapshots link back to that root.
+  See path_defaults.md and doc/examples/paths-ems-server.json.
+
+- Added bounded parallel execution for calibrated openEMS box-wall runs: default
+  4 threads per calibration excitation, 16 per device excitation, 32 total, and
+  at most 8 simultaneous jobs. Calibration and device phases remain separate.
+  Requires the matching gds2openEMS scheduler update; see execution-settings.md.
+
 - Moved execution controls into a solver-aware Settings tab: openEMS thread count
   and CPU/GPU selection, Palace MPI/OpenMP/OpenBLAS counts, and existing Elmer MPI
   process selection.

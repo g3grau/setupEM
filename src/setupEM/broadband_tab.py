@@ -12,11 +12,11 @@ from PySide6.QtWidgets import (QWidget,QVBoxLayout,QHBoxLayout,QFormLayout,QLabe
 try:
     from .broadband_model import BroadbandSpec,prepare_broadband_run,default_engine_python
     from .network_parameters import load_touchstone
-    from .path_config import browse_start
+    from .path_config import browse_start,project_directory,output_directory
 except ImportError:
     from broadband_model import BroadbandSpec,prepare_broadband_run,default_engine_python
     from network_parameters import load_touchstone
-    from path_config import browse_start
+    from path_config import browse_start,project_directory,output_directory
 
 
 class BroadbandModelTab(QWidget):
@@ -104,7 +104,7 @@ class BroadbandModelTab(QWidget):
         if path:self.engine_python.setText(path);self.refresh_backend()
 
     def browse(self):
-        path,_=QFileDialog.getOpenFileName(self,'Broadband model source',browse_start('touchstone',self.file.text()),'Touchstone (*.s*p *.S*P);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Broadband model source',browse_start('touchstone',self.file.text(),project=project_directory(self.window)),'Touchstone (*.s*p *.S*P);;All files (*)')
         if path:self.file.setText(path);self.load_file()
 
     def use_postprocessing(self):
@@ -132,7 +132,10 @@ class BroadbandModelTab(QWidget):
 
     def start(self):
         if self.process and self.process.state()!=QProcess.NotRunning:return
-        parent=QFileDialog.getExistingDirectory(self,'Choose parent for a new broadband-model folder',browse_start('output',fallback=str(Path(self.file.text()).parent)))
+        try:default=output_directory('models',self.window,self.file.text(),str(Path(self.file.text()).parent),create=True)
+        except OSError as error:
+            self.status.setText('Cannot create model output directory: '+str(error));return
+        parent=QFileDialog.getExistingDirectory(self,'Choose parent for a new broadband-model folder',default)
         if parent:self.start_run(Path(parent)/('broadband_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')))
 
     def start_run(self,folder):

@@ -9,11 +9,11 @@ from PySide6.QtWidgets import (QGroupBox,QWidget,QVBoxLayout,QHBoxLayout,QFormLa
 try:
     from .raw_preparation import verified_report
     from .datatype_filters import parse_datatypes,format_datatypes
-    from .path_config import browse_start
+    from .path_config import browse_start,project_directory,output_filename
 except ImportError:
     from raw_preparation import verified_report
     from datatype_filters import parse_datatypes,format_datatypes
-    from path_config import browse_start
+    from path_config import browse_start,project_directory,output_filename
 
 
 class RawInputSection(QGroupBox):
@@ -78,24 +78,24 @@ class RawInputSection(QGroupBox):
 
     def suggest_prepared(self):
         if self.source.text() and self.cleaned.text() and (not self.prepared.text() or self.prepared.text()==getattr(self,'_suggested_prepared','')):
-            self._suggested_prepared=str(Path(self.cleaned.text()).with_name(Path(self.source.text()).stem+'_ems.gds'))
+            self._suggested_prepared=output_filename('gds',Path(self.source.text()).stem+'_ems.gds',self.window,self.source.text(),str(Path(self.cleaned.text()).parent))
             self.prepared.setText(self._suggested_prepared)
 
     def browse_source(self):
-        path,_=QFileDialog.getOpenFileName(self,'Raw Cadence GDS',browse_start('gds',self.source.text()),'GDSII (*.gds *.GDS);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Raw Cadence GDS',browse_start('project',self.source.text(),project=project_directory(self.window)),'GDSII (*.gds *.GDS);;All files (*)')
         if path:self.source.setText(path);self.suggest_output()
 
     def suggest_output(self):
         source=Path(self.source.text()).expanduser()
         if source.is_file() and (not self.cleaned.text() or getattr(self,'_suggested_output','')==self.cleaned.text()):
-            self._suggested_output=str(source.with_name(source.stem+'_cleaned.gds'));self.cleaned.setText(self._suggested_output)
+            self._suggested_output=output_filename('gds',source.stem+'_cleaned.gds',self.window,str(source),str(source.parent));self.cleaned.setText(self._suggested_output)
         if source.is_file() and not self.mapfile.text():
             for name in ('stream.map','mapfile','gds.map'):
                 if (source.parent/name).is_file():self.mapfile.setText(str(source.parent/name));break
         self.suggest_prepared()
 
     def browse_map(self):
-        path,_=QFileDialog.getOpenFileName(self,'Cadence stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent)),'All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Cadence stream map',browse_start('stream_map',self.mapfile.text(),str(Path(self.source.text()).parent),project=project_directory(self.window)),'All files (*)')
         if path:self.mapfile.setText(path)
 
     def browse_cleaned(self):
@@ -103,7 +103,7 @@ class RawInputSection(QGroupBox):
         if path:self.cleaned.setText(path);self.suggest_prepared()
 
     def browse_prepared(self):
-        path,_=QFileDialog.getOpenFileName(self,'Existing port-prepared GDS',browse_start('gds',self.prepared.text()),'GDSII (*.gds *.GDS);;All files (*)')
+        path,_=QFileDialog.getOpenFileName(self,'Existing port-prepared GDS',browse_start('gds',self.prepared.text(),project=project_directory(self.window)),'GDSII (*.gds *.GDS);;All files (*)')
         if path:self.prepared.setText(path)
 
     def use_prepared(self):
@@ -152,6 +152,8 @@ class RawInputSection(QGroupBox):
 
     def state(self):
         return dict(source=self.source.text(),mapfile=self.mapfile.text(),output=self.cleaned.text(),prepared=self.prepared.text(),cell=self.cell.text(),
+            output_preset=self.cleaned.text()==getattr(self,'_suggested_output',None),
+            prepared_preset=self.prepared.text()==getattr(self,'_suggested_prepared',None),
             drawing=self.drawing.text(),drop=self.drop.text(),excluded=self.excluded.text(),
             do_floating=self.floating.isChecked(),do_cutouts=self.cutouts.isChecked(),do_merge=self.merge.isChecked(),
             fill_ground_holes=self.ground_holes.isChecked(),fill_minsize=self.minsize.text(),fill_maxsize=self.maxsize.text(),
@@ -163,6 +165,10 @@ class RawInputSection(QGroupBox):
             ('fill_maxsize',self.maxsize,'20'),('max_hole_area',self.maxarea,'1'),('via_merge_size',self.via,'0')]:widget.setText(str(state.get(key,default)))
         for key,widget,default in [('do_floating',self.floating,True),('do_cutouts',self.cutouts,True),('do_merge',self.merge,True),('fill_ground_holes',self.ground_holes,False)]:widget.setChecked(state.get(key,default))
         self.mincount.setValue(state.get('fill_mincount',20))
+        if state.get('output_preset') and self.source.text():
+            self._suggested_output=output_filename('gds',Path(self.source.text()).stem+'_cleaned.gds',self.window,self.source.text(),str(Path(self.cleaned.text()).parent))
+            self.cleaned.setText(self._suggested_output)
+        if state.get('prepared_preset'):self.prepared.clear()
         self.suggest_prepared();self.update_file_buttons()
         self.status.setText('Raw preparation settings loaded. Step 2 verifies the cleaned file and preparation report before continuing.')
 
@@ -178,7 +184,7 @@ class RawInputSection(QGroupBox):
         state=self.state()
         for key in ('source','output','mapfile'):
             if state[key]:state[key]=str(Path(state[key]).expanduser().resolve())
-        state.pop('drawing');state.pop('drop');state.pop('excluded');state.pop('prepared')
+        for key in ('drawing','drop','excluded','prepared','output_preset','prepared_preset'):state.pop(key)
         state.update(stackup=str(Path(self.file_tab.XML_file_edit.text()).expanduser().resolve()),
             stackup_reader='openems' if getattr(self.window,'OpenEMSMode',False) else 'palace',
             variable_overrides=self.file_tab.get_variable_overrides(),drawing_datatypes=parse_datatypes(self.drawing.text()),
@@ -199,6 +205,7 @@ class RawInputSection(QGroupBox):
             options=self.options()
             for path in (Path(options['output']),Path(options['output']).with_suffix('.prep.json'),Path(options['output']).with_suffix('.prep.log')):
                 if path.exists():raise ValueError('Output already exists; choose a new cleaned GDS name: '+str(path))
+            Path(options['output']).parent.mkdir(parents=True,exist_ok=True)
             self.temporary=tempfile.TemporaryDirectory(prefix='.setupem_raw_job_',dir=Path(options['output']).parent)
             job=Path(self.temporary.name)/'job.json';job.write_text(json.dumps(options))
             self.process=QProcess(self);self.process.setProcessChannelMode(QProcess.MergedChannels)

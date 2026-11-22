@@ -50,6 +50,16 @@ def openems_script_text(values, ports):
     if not math.isfinite(merging) or merging < 0:
         raise ValueError('Via merging distance must be finite and nonnegative.')
     boxwall = v.get('openems_boxwall') or None
+    execution = v.get('openems_execution') if boxwall else None
+    if execution:
+        for key in ('total_threads','device_threads','calibration_threads','max_jobs'):
+            value=execution.get(key)
+            if isinstance(value,bool) or not isinstance(value,int) or value<1:
+                raise ValueError('Box-wall execution '+key+' must be a positive integer.')
+        if max(execution['device_threads'],execution['calibration_threads'])>execution['total_threads']:
+            raise ValueError('Each job thread count must fit within the total concurrent thread budget.')
+        if v.get('openems_engine')=='gpu' and execution['max_jobs']>1:
+            raise ValueError('Concurrent box-wall jobs require the CPU engine; set maximum concurrent jobs to 1 for GPU.')
     aircut = v.get('openems_aircut') or None
     if boxwall and aircut:
         raise ValueError('Use box-wall calibration and RDL air cuts as separate experiments for now.')
@@ -91,6 +101,7 @@ def openems_script_text(values, ports):
                     fill_factor_correction=bool(v.get('fill_factor_correction', False)),
                     preview_only=False, no_gui=True)
     if boxwall:settings['openems_boxwall']=boxwall
+    if execution:settings['openems_execution']=execution
     if aircut:settings['openems_aircut']=aircut
     if threads:
         settings['numThreads'] = threads

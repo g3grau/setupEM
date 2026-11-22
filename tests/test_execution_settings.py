@@ -79,9 +79,14 @@ def test_settings_tab_and_solver_switch_preserve_values(monkeypatch):
         tab.palace_mpi.setValue(32);tab.palace_threads.setValue(1)
         openems_ui.select(window,'openems')
         assert module.saved_values['palace_mpi_processes'] == 32
+        assert tab.openems_threads.value()==16
+        assert tab.openems_calibration_threads.value()==4
+        assert tab.openems_total_threads.value()==32
+        assert tab.openems_max_jobs.value()==8
         assert tab.openems_group.isAncestorOf(window.mesh_tab.openems_threads)
         assert tab.openems_group.isAncestorOf(window.mesh_tab.openems_engine)
         tab.openems_threads.setValue(12);tab.save_values()
+        assert module.saved_values['openems_execution']==dict(total_threads=32,device_threads=12,calibration_threads=4,max_jobs=8)
         openems_ui.select(window,'palace')
         assert tab.palace_mpi.value() == 32 and tab.palace_threads.value() == 1
         openems_ui.select(window,'openems')
@@ -89,7 +94,24 @@ def test_settings_tab_and_solver_switch_preserve_values(monkeypatch):
         tab.openems_threads.setValue(0);tab.save_values()
         assert module.saved_values['numThreads'] is None
         assert window.native_config_extra_struct()['solver'] == 'openems'
+        tab.openems_total_threads.setValue(0);tab.save_values()
+        assert module.saved_values['openems_execution'] is None
         openems_ui.select(window,'elmer')
         assert tab.elmer_group.isAncestorOf(window.mesh_tab.threads_box)
     finally:
         window._script_dirty=False;window.close();module.saved_values.clear()
+
+
+def test_boxwall_scheduler_export_and_validation():
+    from setupEM.script_model import ScriptModel
+    config=dict(total_threads=32,device_threads=16,calibration_threads=4,max_jobs=8)
+    values=dict(fstop=10,openems_execution=config,openems_boxwall=dict(side='xmax',signal_layer='Signal',
+        return_layer='Ground',return_kind='metal',feed_length=100,gap=1))
+    text=openems_script_text(values,ports_from_struct([]))
+    assert ScriptModel(text).site('openems_execution').value==config
+    compile(text,'boxwall.py','exec')
+    with pytest.raises(ValueError,match='budget'):
+        openems_script_text(dict(values,openems_execution=dict(config,device_threads=64)),ports_from_struct([]))
+    with pytest.raises(ValueError,match='positive integer'):
+        openems_script_text(dict(values,openems_execution=dict(config,device_threads=0)),ports_from_struct([]))
+    assert 'openems_execution' not in em_script_text(values,ports_from_struct([]),False)

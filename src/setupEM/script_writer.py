@@ -213,7 +213,7 @@ def em_script_text(saved_values, simulation_ports, elmer_mode, for_export=False,
                        'layernumbers', 'allpolygons']
     # keys not written to the script; fdump_enabled is a GUI-only toggle (Elmer mode), never a gds2palace setting
     ignore_list = ['model_basename', 'sim_path', 'fdump_enabled',
-                   'numThreads', 'openems_engine', 'openems_boundaries', 'energy_limit', 'numfreq',
+                   'numThreads', 'openems_engine', 'openems_execution', 'openems_boundaries', 'energy_limit', 'numfreq',
                    ]
     if palace_mode:
         ignore_list.append('iterative')

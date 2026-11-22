@@ -17,7 +17,7 @@
 ########################################################################
 
 
-import sys, json, os, ast, webbrowser, argparse, shutil, re, glob, subprocess, textwrap
+import sys, json, os, ast, webbrowser, argparse, shutil, re, glob, subprocess, textwrap, pathlib
 import numpy as np
 import importlib.metadata
 import importlib.util
@@ -3198,6 +3198,8 @@ class CreateModelTab(CreateModelTabBase):
 
     def on_finished(self, exit_code, exit_status):
         super().on_finished(exit_code, exit_status)
+        if self._process_purpose=='run_simulation' and exit_code==0 and exit_status==QProcess.NormalExit:
+            self._publish_project_networks()
         # Auto-append the results summary after a real simulation run (not after mesh creation)
         if self._process_purpose == "run_simulation" and self.MainWindow.PalaceMode:
             self._append_results_summary()
@@ -3227,6 +3229,25 @@ class CreateModelTab(CreateModelTabBase):
         # files now, seamlessly replacing any live port-S.csv preview it was showing.
         if self._process_purpose == "run_simulation" and self.MainWindow.result_viewer_window is not None:
             self.MainWindow.result_viewer_window._rescan_files()
+
+    def _publish_project_networks(self):
+        if __package__ in (None,''):
+            from path_config import output_directory,collect_touchstone
+            from result_viewer import find_touchstone_files,is_amr_iteration_snapshot
+        else:
+            from .path_config import output_directory,collect_touchstone
+            from .result_viewer import find_touchstone_files,is_amr_iteration_snapshot
+        destination=output_directory('touchstone',self.MainWindow)
+        if not destination:return
+        name=self.run_basename();base=pathlib.Path(self.targetdir_edit.text())
+        roots=([base/'output'/(name+'_data'),base/(name+'_data')] if self.MainWindow.OpenEMSMode
+            else [pathlib.Path(self.run_folder('palace_model' if self.MainWindow.PalaceMode else 'elmer_model'))])
+        try:
+            files=sorted({path for root in roots for path in find_touchstone_files(str(root))
+                if 'standards' not in pathlib.Path(path).parts and not is_amr_iteration_snapshot(path)})
+            copies=collect_touchstone(files,destination) if files else []
+            if copies:self.log_area.appendPlainText('Project Touchstone files:\n'+'\n'.join(copies))
+        except (OSError,ValueError) as error:self.log_area.appendPlainText('Cannot collect project Touchstone files: '+str(error))
 
     def on_process_error(self, error):
         super().on_process_error(error)
