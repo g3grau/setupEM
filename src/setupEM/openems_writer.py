@@ -64,18 +64,27 @@ def openems_script_text(values, ports):
     if boxwall and aircut:
         raise ValueError('Use box-wall calibration and RDL air cuts as separate experiments for now.')
     if boxwall:
-        if boxwall.get('side') not in ('xmin','xmax','ymin','ymax'):
-            raise ValueError('Choose a lateral box-wall side.')
-        for key in ('signal_layer','return_layer'):
-            if not boxwall.get(key):raise ValueError('Choose signal and return layers for box-wall feeds.')
-        if boxwall.get('return_kind') not in ('metal','background'):
-            raise ValueError('Choose a metal patch or conductive background return.')
-        length=float(boxwall.get('feed_length',0));gap=float(boxwall.get('gap',0));width=float(boxwall.get('width',0))
-        if not all(math.isfinite(x) for x in (length,gap,width)) or not 0<gap<length or width<0:
-            raise ValueError('Box-wall feeds require length > gap > 0 and width >= 0 (0 = pin width).')
-        setback=float(boxwall.get('reference_plane_setback',0))
-        if not math.isfinite(setback) or not 0 <= setback < length:
-            raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
+        if 'ports' in boxwall:
+            entries=boxwall['ports']
+            if not isinstance(entries,dict) or not entries:raise ValueError('Select at least one boxwall port.')
+            numbers={p.portnumber for p in ports.ports}
+            for key in entries:
+                if str(key) not in {str(n) for n in numbers}:raise ValueError('Unknown boxwall port: '+str(key))
+            feeds=list(entries.values())
+        else:feeds=[boxwall]
+        for feed in feeds:
+            if feed.get('side') not in ('xmin','xmax','ymin','ymax'):
+                raise ValueError('Choose a lateral box-wall side.')
+            for key in ('signal_layer','return_layer'):
+                if not feed.get(key):raise ValueError('Choose signal and return layers for box-wall feeds.')
+            if feed.get('return_kind') not in ('metal','background'):
+                raise ValueError('Choose a metal patch or conductive background return.')
+            length=float(feed.get('feed_length',0));gap=float(feed.get('gap',0));width=float(feed.get('width',0))
+            if not all(math.isfinite(x) for x in (length,gap,width)) or not 0<gap<length or width<0:
+                raise ValueError('Box-wall feeds require length > gap > 0 and width >= 0 (0 = pin width).')
+            setback=float(feed.get('reference_plane_setback',0))
+            if not math.isfinite(setback) or not 0 <= setback < length:
+                raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
         if any(p.port_Z0!=50 or not p.voltage for p in ports.ports):
             raise ValueError('Box-wall calibration requires excited 50-ohm ports.')
     if aircut:
@@ -165,13 +174,14 @@ settings.update(simulation_ports=simulation_ports, materials_list=materials_list
 from gds2openEMS import util_boxwall as boxwall
 settings = generated_geometry.add_boxwall_feeds(settings, settings['openems_boxwall'], source_gds=gds_filename)
 feed_config = settings['openems_boxwall']
-setback = float(feed_config.get('reference_plane_setback', 0))
-if not np.isfinite(setback) or not 0 <= setback < float(feed_config['feed_length']):
-    raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
-settings['reference_plane_shift'] = {feed_config['side']: float(feed_config['feed_length']) - setback}
-if setback:
-    print(f'Reference plane moved {setback:g} drawing units toward the wall from the terminal; '
-          'the intervening transition remains part of the device.', flush=True)
+if 'ports' not in feed_config:
+    setback = float(feed_config.get('reference_plane_setback', 0))
+    if not np.isfinite(setback) or not 0 <= setback < float(feed_config['feed_length']):
+        raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
+    settings['reference_plane_shift'] = {feed_config['side']: float(feed_config['feed_length']) - setback}
+    if setback:
+        print(f'Reference plane moved {setback:g} drawing units toward the wall from the terminal; '
+              'the intervening transition remains part of the device.', flush=True)
 plan = boxwall.prepare(settings)
 if args.preview_only:
     boxwall.preview(plan)

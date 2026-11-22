@@ -67,6 +67,13 @@ def geometry_failure(error):
                         'or explicitly retain the transition using Reference plane setback toward wall' +
                         (f' of more than {needed:.3f} um' if needed is not None else '') + '. '
                         'A setback changes the measurement reference plane; it does not correct the geometry.')
+    elif 'same physical PEC wall' in detail or 'coupled calibration reference plane' in detail:
+        guidance.append('For ports on the same side, align terminal position plus feed length to one PEC wall, '
+                        'and use the same feed length minus reference setback. Choose different wall sides '
+                        'when independent wall/reference planes are required.')
+    elif 'touch/overlap' in detail:
+        guidance.append('Choose outward directions that keep feeds separate, reduce their widths, or use separate '
+                        'signal/return layers. Generated conductors on the same layer must not intersect.')
     else:
         guidance.append('Check the selected GDS, stackup, signal/return layers and rectangular terminal markers. '
                         'Resolve the geometry detail below, then check again.')
@@ -104,11 +111,12 @@ def check_configuration(values, port_rows):
                  allpolygons=polys, materials_list=ma, dielectrics_list=di, metals_list=me,
                  sim_path=v.get('sim_path', '.'), model_basename=v.get('model_basename', 'preflight'))
         s = util_model_geometry.add_boxwall_feeds(s, cfg, source_gds=v['GdsFile'])
-        setback = float(cfg.get('reference_plane_setback', 0))
-        length = float(cfg['feed_length'])
-        if not math.isfinite(setback) or not 0 <= setback < length:
-            raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
-        s['reference_plane_shift'] = {cfg['side']: length - setback}
+        if 'ports' not in cfg:
+            setback = float(cfg.get('reference_plane_setback', 0))
+            length = float(cfg['feed_length'])
+            if not math.isfinite(setback) or not 0 <= setback < length:
+                raise ValueError('Reference plane setback must be finite, nonnegative and shorter than the feed.')
+            s['reference_plane_shift'] = {cfg['side']: length - setback}
         if 'deembedding_length' in v:
             s['deembedding_length'] = v['deembedding_length']
         return describe_plan(util_boxwall.prepare(s))

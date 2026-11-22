@@ -45,6 +45,12 @@ show the saved files without changing the active input or applying model-time
 via merging. **Use for simulation** selects an existing final file and restores
 ports from its matching `.ports.json` manifest when available.
 
+The Raw GDS field displays **Please choose a file ===>** until an original input
+is selected. Preview legends and polygon tooltips show physical stackup names;
+other layers use the selected stream map's names, already before port finding.
+Port-prepared files can also recover their layer names from the matching manifest.
+Layers with no name in either source retain their numeric GDS identifier.
+
 Port preparation creates a file; the active simulation input group identifies
 which file the solver uses. It does not repeat preparation.
 

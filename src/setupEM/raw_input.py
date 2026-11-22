@@ -24,7 +24,9 @@ class RawInputSection(QGroupBox):
         help=QLabel('Preparation workflow: Raw GDS → Cleaned GDS → EM-port GDS. Uses the XML stackup above. '
                     'Step 2 creates the EM-port file and selects it as the active simulation input below. Show previews a file; Use for simulation selects it.')
         help.setWordWrap(True);layout.addWidget(help)
-        self.source=QLineEdit();self.source.setPlaceholderText('Original Cadence GDS export')
+        self.source=QLineEdit();self.source.setPlaceholderText('Please choose a file ===>')
+        self.source.setStyleSheet(file_tab.gds_file_edit.styleSheet())
+        self.source.setToolTip('Original Cadence GDS export. Simplification writes a separate generated GDS.')
         self.mapfile=QLineEdit();self.mapfile.setPlaceholderText('Cadence stream map (used for drawing/pin purposes and port names)')
         self.cleaned=QLineEdit();self.cleaned.setPlaceholderText('Separate cleaned GDS output')
         self.prepared=QLineEdit();self.prepared.setPlaceholderText('Final _ems.gds, with named EM-port markers')
@@ -122,10 +124,10 @@ class RawInputSection(QGroupBox):
             from gds_simplify_for_em import open_gds_cell
             try:
                 from .layout_preview import LayoutPreviewWindow
-                from .pin_preparation import read_prepared_manifest
+                from .pin_preparation import read_prepared_manifest,preview_layer_names
             except ImportError:
                 from layout_preview import LayoutPreviewWindow
-                from pin_preparation import read_prepared_manifest
+                from pin_preparation import read_prepared_manifest,preview_layer_names
             edit={'raw':self.source,'cleaned':self.cleaned,'prepared':self.prepared}[stage]
             path=Path(edit.text()).expanduser().resolve();xml=Path(self.file_tab.XML_file_edit.text()).expanduser()
             if not path.is_file() or not xml.is_file():raise ValueError('Choose an existing GDS and XML stackup first.')
@@ -141,7 +143,8 @@ class RawInputSection(QGroupBox):
             settings=dict(GdsFile=str(path),SubstrateFile=str(xml),cellname=cellname,
                 purpose=sorted({d for l,d in info['layers_and_datatypes']}),preprocess_gds=False,merge_polygon_size=0.)
             view=LayoutPreviewWindow(self.window,gds_override_path=str(path),title_suffix={'raw':'Raw GDS','cleaned':'Cleaned GDS','prepared':'EM-port GDS'}[stage],
-                preview_settings=settings,preview_markers=markers,preview_stackup=stackup,preview_layers={l for l,d in info['layers_and_datatypes']})
+                preview_settings=settings,preview_markers=markers,preview_stackup=stackup,preview_layers={l for l,d in info['layers_and_datatypes']},
+                preview_layer_names=preview_layer_names(path,self.mapfile.text(),metadata))
             view.setParent(self.window,Qt.Window);view.CLOSE_WITH_MAIN_WINDOW=True
             self._preview_windows.append(view);view.destroyed.connect(lambda: self._forget_preview(view))
             view.show();self.status.setText('Previewing '+path.name+'. Active simulation input is unchanged.')

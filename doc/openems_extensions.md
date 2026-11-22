@@ -13,17 +13,34 @@ Changing conda activation does not update an already running GUI: restart it.
 
 ## Calibrated box-wall feeds (Ports tab)
 
-Expand/check **openEMS: calibrated box-wall feeds**. Choose an outward wall side,
-signal metal, return kind/layer, feed length, launch gap, and width. Width zero
-uses each rectangular terminal marker's transverse width. GDS geometry does not
-specify intended access direction, so choose it explicitly. All terminal outward
-edges must align and generated feeds must remain separated. Other geometries
-require manually prepared feeds, not guessed routing.
+Select a port row, then check **Port N: calibrated boxwall feed** to configure
+that port. Its wall side/direction, signal metal, return kind/layer, feed length,
+launch gap, width and reference setback are independent of other ports. The table
+shows **Port type** and each feed's actual wall/access direction. Switching rows
+loads the selected port's settings; it does not change the other ports. Uncheck
+only that port to use its ordinary via/in-plane definition. Via From/To controls
+and ordinary direction controls are disabled while a boxwall feed is selected.
+For via ports, **From** is normally ground/reference and **To** is normally signal;
+the direction sign controls excitation polarity.
 
-Existing terminal via-port definitions may remain in the Ports table: this
-workflow uses their marker polygons and turns them into wall launches. All ports
-must be excited and use 50 ohms. The output is a new physical fixture with added
-feeds, return geometry, and a PEC wall. These are visible in the 3D preview.
+Width zero uses the terminal marker's transverse width. GDS geometry does not
+specify intended access direction, so choose the outward wall side explicitly.
+Ordinary via/in-plane ports may coexist with calibrated ports, provided they stay
+inside the PEC walls. Full-matrix calibration currently requires all ports to be
+excited at 50 ohms. Only the selected wall-port interfaces are deembedded; ordinary
+ports retain their lumped-port reference. The report identifies those ports.
+
+Ports sharing one side share a physical PEC wall and coupled calibration reference
+plane. Their terminal positions plus individual feed lengths must place that wall
+at the same coordinate; feed length minus setback must also agree on that side.
+Different sides can have independent lengths and shifts. Incompatible choices are
+rejected by preflight with guidance; other routing is not guessed. Generated
+conductors must not touch/overlap on the same metal layer.
+
+Older shared boxwall configurations still load: each existing port initially gets
+the old shared settings, which can then be edited independently. New configs and
+exports store `openems_boxwall.ports`, keyed by port number. Update both setupEM
+and gds2openEMS before using these files on another machine.
 
 - **Individual metal returns**: copy each generated signal feed's footprint to
   the selected return layer, extending the return continuously across the signal

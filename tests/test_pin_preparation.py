@@ -90,3 +90,19 @@ def test_dialog_inventory_selection_and_named_port_headers(original,monkeypatch)
         dialog.close()
     finally:
         w._script_dirty=False;w.close();module.saved_values.clear()
+
+
+def test_preview_layer_names_use_verified_manifest_and_keep_numeric_fallback(tmp_path):
+    import hashlib
+    import json
+    from setupEM.pin_preparation import preview_layer_names
+    gds=tmp_path/'example.gds';gds.write_bytes(b'layout fixture')
+    mapfile=tmp_path/'stream.map';mapfile.write_text('M1 drawing 8 0\nM1 pin 8 2\nLABEL text 999 0\n')
+    assert preview_layer_names(gds,mapfile)=={8:'M1',999:'LABEL'}
+    assert preview_layer_names(gds)=={}
+    manifest=dict(schema='setupEM.ports.v1',ports=[],output_sha256=hashlib.sha256(gds.read_bytes()).hexdigest(),
+        mapping=[['SAVED_LAYER','drawing',999,0]])
+    gds.with_suffix('.ports.json').write_text(json.dumps(manifest))
+    assert preview_layer_names(gds,mapfile)=={999:'SAVED_LAYER'}
+    gds.write_bytes(b'changed layout')
+    assert preview_layer_names(gds,mapfile)=={}  # Never attach stale manifest names.

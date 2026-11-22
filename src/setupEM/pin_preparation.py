@@ -21,6 +21,20 @@ def read_map(path):
     return rows
 
 
+def preview_layer_names(gds_path,mapfile='',metadata=None):
+    """Names for non-stackup layers, from a matching manifest or stream map."""
+    try:
+        metadata=metadata if metadata is not None else read_prepared_manifest(gds_path)
+        rows=metadata.get('mapping',[]) if metadata else []
+        if not rows and mapfile and Path(mapfile).is_file():rows=read_map(Path(mapfile))
+        names={}
+        for name,purpose,layer,datatype in rows:
+            group=names.setdefault(int(layer),[])
+            if name not in group:group.append(name)
+        return {layer:' / '.join(group) for layer,group in names.items()}
+    except (OSError,ValueError,TypeError):return {}
+
+
 def inventory(cell, rows):
     polygons = cell.get_polygons(by_spec=True)
     labels = cell.get_labels()
@@ -127,7 +141,7 @@ def read_prepared_manifest(path):
     source=Path(path).expanduser().resolve();manifest=source.with_suffix('.ports.json')
     if not manifest.is_file():return None
     data=json.loads(manifest.read_text())
-    if data.get('schema')!='setupEM.ports.v1' or not isinstance(data.get('ports'),list):
+    if not isinstance(data,dict) or data.get('schema')!='setupEM.ports.v1' or not isinstance(data.get('ports'),list):
         raise ValueError('Unrecognized port manifest: '+str(manifest))
     if data.get('output_sha256')!=hashlib.sha256(source.read_bytes()).hexdigest():
         raise ValueError('Port manifest does not match this GDS. Select the matching file or prepare ports again.')

@@ -1,5 +1,5 @@
 """openEMS-specific controls for the shared setupEM front end."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QSignalBlocker
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QSpinBox, QGroupBox, QGridLayout, QSplitter,
                                QFormLayout, QLabel, QMessageBox, QWidget, QVBoxLayout, QLayout, QTableWidgetItem, QPushButton, QFileDialog, QPlainTextEdit)
 try:
@@ -98,7 +98,7 @@ def update(window):
     m, f = window.mesh_tab, window.frequencies_tab
     m.openems_group.setVisible(openems)
     window.openems_saved_preview.setVisible(openems)
-    window.openems_calibration_group.setVisible(openems and window.openems_boxwall_group.isChecked())
+    window.openems_calibration_group.setVisible(openems and bool(port_feed_configs(window)))
     for layout in (m.meshorder_layout, m.cells_maxsize_layout, m.conductor_model_layout):
         layout_visible(layout, not openems)
     # Conductor presets were already hidden for Elmer.
@@ -151,7 +151,7 @@ def save(window):
 
 def install_geometry(w):
     """Optional generated geometry, isolated from Palace's port-wall controls."""
-    g=QGroupBox('openEMS: calibrated box-wall feeds (experimental)')
+    g=QGroupBox('Selected port: calibrated boxwall feed (experimental)')
     g.setCheckable(True);g.setChecked(False);w.openems_boxwall_group=g
     body=QWidget();body_layout=QVBoxLayout(body);outer=QVBoxLayout(g);outer.addWidget(body)
     settings=QWidget();form=QVBoxLayout(settings);fields=QGridLayout();form.addLayout(fields)
@@ -182,6 +182,7 @@ def install_geometry(w):
     note=QLabel('Generates feeds from aligned rectangular terminal markers. GDS does not determine access direction. '
         'The 3D preview shows the generated device; Prepare also writes calibration standards. Metal returns and backside returns '
         'are different physical fixtures; calibration does not remove their coupling into the device. '
+        'Select a port row to edit its own feed. Ports sharing a wall need matching wall/reference planes. '
         'A deep backside return may limit the valid calibration band. Trial dimensions require review.')
     note.setWordWrap(True);form.addWidget(note)
     w.openems_check_calibration=QPushButton('Check calibration limits / geometry (no simulation)')
@@ -208,7 +209,7 @@ def install_geometry(w):
     w.openems_calibration_group.setMaximumHeight(230)
     w.create_model_tab.actions_layout.insertWidget(1,w.openems_calibration_group)
     w.openems_calibration_group.hide()
-    g.toggled.connect(lambda checked: w.openems_calibration_group.setVisible(w.OpenEMSMode and checked))
+    g.toggled.connect(lambda checked: feed_edited(w))
     w.ports_tab.lists_splitter.insertWidget(0,g)
     w.ports_tab.lists_splitter.setStretchFactor(0,2)
     w.ports_tab.lists_splitter.setStretchFactor(1,3)
@@ -219,11 +220,13 @@ def install_geometry(w):
     g.toggled.connect(lambda _: refresh_layer_choices(w))
     w.openems_return_kind.currentIndexChanged.connect(lambda _: refresh_layer_choices(w))
     g.hide()
+    w._openems_port_feeds={}
+    w._openems_legacy_feed=None
+    w._loading_port_feed=False
     for widget in (w.openems_wall_side,w.openems_signal,w.openems_return,w.openems_return_kind):
-        widget.currentTextChanged.connect(lambda _: refresh_port_overview(w))
-    for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width):
-        widget.valueChanged.connect(lambda _: refresh_port_overview(w))
-    w.openems_boxwall_group.toggled.connect(lambda _: refresh_port_overview(w))
+        widget.currentTextChanged.connect(lambda _: feed_edited(w))
+    for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width,w.openems_reference_setback):
+        widget.valueChanged.connect(lambda _: feed_edited(w))
     for widget in (w.openems_wall_side,w.openems_signal,w.openems_return,w.openems_return_kind):
         widget.currentTextChanged.connect(lambda _: invalidate_calibration(w))
     for widget in (w.openems_feed_length,w.openems_feed_gap,w.openems_feed_width,w.openems_reference_setback):
@@ -270,18 +273,67 @@ def refresh_layer_choices(w):
     fill(w.openems_return,returns)
 
 
+def _populated_ports(w):
+    table=w.ports_tab.portslist
+    return [row+1 for row in range(table.rowCount()) if table.item(row,2) is not None and table.item(row,2).text()]
+
+
+def port_feed_configs(w):
+    legacy=getattr(w,'_openems_legacy_feed',None)
+    if legacy:return {str(number):dict(legacy) for number in _populated_ports(w)}
+    return dict(getattr(w,'_openems_port_feeds',{}))
+
+
+def feed_controls(w):
+    result=dict(side=w.openems_wall_side.currentText(),signal_layer=w.openems_signal.currentText(),
+        return_kind=w.openems_return_kind.currentData(),return_layer=w.openems_return.currentText(),
+        feed_length=w.openems_feed_length.value(),gap=w.openems_feed_gap.value(),width=w.openems_feed_width.value())
+    if w.openems_reference_setback.value():result['reference_plane_setback']=w.openems_reference_setback.value()
+    return result
+
+
+def feed_edited(w):
+    if getattr(w,'_loading_port_feed',True):return
+    row=w.ports_tab.portslist.currentRow()
+    if row<0:return
+    entries=port_feed_configs(w)
+    w._openems_legacy_feed=None
+    if w.openems_boxwall_group.isChecked():entries[str(row+1)]=feed_controls(w)
+    else:entries.pop(str(row+1),None)
+    w._openems_port_feeds=entries
+    w.ports_tab._update_direction_controls()
+    w.ports_tab._update_direction_lock(row)
+    refresh_port_overview(w)
+    invalidate_calibration(w)
+
+
+def select_port_feed(w,row):
+    if not hasattr(w,'openems_boxwall_group') or row<0:return
+    c=port_feed_configs(w).get(str(row+1),{})
+    w._loading_port_feed=True
+    try:
+        w.openems_boxwall_group.setTitle(f'Port {row+1}: calibrated boxwall feed (experimental)')
+        w.openems_boxwall_group.setChecked(bool(c))
+        w.openems_wall_side.setCurrentText(c.get('side','xmax'))
+        w.openems_signal.setCurrentText(c.get('signal_layer',w.ports_tab.target_box.currentText()))
+        w.openems_return_kind.setCurrentIndex(1 if c.get('return_kind')=='background' else 0)
+        refresh_layer_choices(w)
+        w.openems_return.setCurrentText(c.get('return_layer',w.ports_tab.from_box.currentText()))
+        w.openems_feed_length.setValue(c.get('feed_length',100));w.openems_feed_gap.setValue(c.get('gap',1))
+        w.openems_feed_width.setValue(c.get('width',0))
+        w.openems_reference_setback.setValue(c.get('reference_plane_setback',0))
+    finally:w._loading_port_feed=False
+    w.ports_tab._update_direction_controls()
+    w.ports_tab._update_direction_lock(row)
+    refresh_port_overview(w)
+
+
 def load_geometry(w):
     if not hasattr(w,'openems_boxwall_group'):return
-    refresh_layer_choices(w)
     c=w.saved_values.get('openems_boxwall') or {}
-    w.openems_boxwall_group.setChecked(bool(c))
-    w.openems_wall_side.setCurrentText(c.get('side','xmax'))
-    w.openems_signal.setCurrentText(c.get('signal_layer',''))
-    w.openems_return_kind.setCurrentIndex(1 if c.get('return_kind')=='background' else 0)
-    w.openems_return.setCurrentText(c.get('return_layer',''))
-    w.openems_feed_length.setValue(c.get('feed_length',100));w.openems_feed_gap.setValue(c.get('gap',1))
-    w.openems_feed_width.setValue(c.get('width',0))
-    w.openems_reference_setback.setValue(c.get('reference_plane_setback',0))
+    w._openems_port_feeds={str(k):dict(v) for k,v in c.get('ports',{}).items()}
+    w._openems_legacy_feed=dict(c) if c and 'ports' not in c else None
+    select_port_feed(w,max(w.ports_tab.portslist.currentRow(),0))
     c=w.saved_values.get('openems_aircut') or {}
     w.openems_aircut_group.setChecked(bool(c));w.openems_rdl_metal.setCurrentText(c.get('metal',''))
     w.openems_valley_height.setValue(c.get('valley_height',1));w.openems_coating_width.setValue(c.get('coating_width',.5))
@@ -290,12 +342,9 @@ def load_geometry(w):
 def save_geometry(w):
     if not hasattr(w,'openems_boxwall_group'):return
     v=w.saved_values
-    if w.openems_boxwall_group.isChecked():
-        v['openems_boxwall']=dict(side=w.openems_wall_side.currentText(),signal_layer=w.openems_signal.currentText(),
-            return_kind=w.openems_return_kind.currentData(),return_layer=w.openems_return.currentText(),
-            feed_length=w.openems_feed_length.value(),gap=w.openems_feed_gap.value(),width=w.openems_feed_width.value())
-        if w.openems_reference_setback.value():
-            v['openems_boxwall']['reference_plane_setback']=w.openems_reference_setback.value()
+    populated=set(map(str,_populated_ports(w)))
+    entries={k:c for k,c in port_feed_configs(w).items() if k in populated}
+    if entries:v['openems_boxwall']={'ports':entries}
     else:v.pop('openems_boxwall',None)
     if w.openems_aircut_group.isChecked():
         v['openems_aircut']=dict(metal=w.openems_rdl_metal.currentText(),
@@ -304,32 +353,42 @@ def save_geometry(w):
 
 
 def refresh_port_overview(w):
-    """Show generated launches without overwriting the saved terminal markers."""
-    if not hasattr(w, 'openems_boxwall_group'): return
+    """Each row describes its own feed; ordinary and wall ports can coexist."""
+    if not hasattr(w,'openems_boxwall_group'):return
     table=w.ports_tab.portslist
-    active=w.OpenEMSMode and w.openems_boxwall_group.isChecked()
-    if table.columnCount()<14:
-        table.setColumnCount(14)
-        for i,label in enumerate(('Wall / access','Signal metal','Return layer','Feed / shift (um)','Width / wall gap (um)'),9):
+    blocker=QSignalBlocker(table)  # Updating derived columns is not an input change.
+    entries=port_feed_configs(w) if w.OpenEMSMode else {}
+    active=bool(entries)
+    if table.columnCount()<15:
+        table.setColumnCount(15)
+        for i,label in enumerate(('Wall / access','Signal metal','Return layer','Feed / shift (um)','Width / wall gap (um)','Port type'),9):
             table.setHorizontalHeaderItem(i,QTableWidgetItem(label))
             table.horizontalHeader().setSectionResizeMode(i,table.horizontalHeader().ResizeMode.ResizeToContents)
+        table.horizontalHeader().moveSection(table.horizontalHeader().visualIndex(14),0)
+    populated=_populated_ports(w)
+    all_wall=bool(populated) and all(str(n) in entries for n in populated)
     table.horizontalHeaderItem(2).setText('Terminal marker layer' if active else 'Source layer')
-    for col in (3,4,5,6,8):table.setColumnHidden(col,active)
+    for col in (3,4,5,6,8):table.setColumnHidden(col,all_wall)
     for col in range(9,14):table.setColumnHidden(col,not active)
-    w.ports_tab.bottom_group.setTitle('Port overview — generated box-wall launches' if active else 'Port overview')
-    w.ports_tab.top_group.setTitle('Terminal marker definitions (converted to wall launches below)' if active else 'Port settings')
-    side=w.openems_wall_side.currentText()
-    code={'xmax':'SWX → −X','xmin':'SW-X → +X','ymax':'SWY → −Y','ymin':'SW-Y → +Y'}[side]
-    width=w.openems_feed_width.value()
-    values=(side+' / '+code,w.openems_signal.currentText(),w.openems_return.currentText(),
-            f'{w.openems_feed_length.value():g}',
-            f'{width:g}' if width else 'pin width')
+    table.setColumnHidden(14,not w.OpenEMSMode)
+    w.ports_tab.bottom_group.setTitle('Port overview — per-port feeds' if active else 'Port overview')
+    w.ports_tab.top_group.setTitle('Port settings')
     for row in range(table.rowCount()):
-        populated=table.item(row,2) is not None and bool(table.item(row,2).text())
+        c=entries.get(str(row+1)) if row+1 in populated else None
+        values=['']*5
+        if c:
+            side=c['side'];code={'xmax':'SWX → −X','xmin':'SW-X → +X','ymax':'SWY → −Y','ymin':'SW-Y → +Y'}[side]
+            length=c['feed_length'];setback=c.get('reference_plane_setback',0)
+            values=[side+' / '+code,c['signal_layer'],c['return_layer'],f'{length:g} / {length-setback:g}',
+                    (f"{c['width']:g}" if c['width'] else 'pin width')+f" / {c['gap']:g}"]
         for col,value in enumerate(values,9):
-            item=QTableWidgetItem(value + (f' / {w.openems_feed_gap.value():g}' if col==13 else '') if active and populated else '')
-            item.setToolTip('Generated in-plane launch toward device. L/2L coupled-line calibration; feed length is the reference-plane shift. Original marker definitions are retained for editing.')
+            item=QTableWidgetItem(value)
+            item.setToolTip('Selected port fixture. Feed length / calibrated shift are measured from its terminal and wall respectively.')
             table.setItem(row,col,item)
+        direction=table.item(row,6).text().upper() if table.item(row,6) else ''
+        kind='Boxwall feed' if c else ('Via port' if 'Z' in direction else 'In-plane port')
+        table.setItem(row,14,QTableWidgetItem(kind if row+1 in populated else ''))
+    w.openems_calibration_group.setVisible(w.OpenEMSMode and active)
 
 
 def saved_geometry_candidates(values):
@@ -372,6 +431,7 @@ def preview_saved_geometry(window):
 
 
 def invalidate_calibration(window):
+    if getattr(window,'_loading_port_feed',False):return
     for name in ('openems_calibration_report', 'openems_run_calibration_report'):
         panel=getattr(window,name,None)
         if panel is not None:

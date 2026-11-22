@@ -1,5 +1,10 @@
 # Unreleased — execution Settings tab
 
+- Boxwall feeds are now configured per port, with independent walls, layers and
+  fixture dimensions, and may coexist with ordinary via/in-plane ports. Via
+  controls are disabled for a selected boxwall feed; From/To labels explain the
+  usual ground/signal convention. Legacy shared configurations remain readable.
+
 - Added project-relative path presets for generated GDS, FDTD/FEM runs,
   Touchstone results, circuit-model fits and plots. Project configs stay beside
   the original layout; generated solver snapshots link back to that root.

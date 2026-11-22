@@ -87,7 +87,7 @@ def test_gui_features_roundtrip_and_solver_visibility(monkeypatch):
   assert table.item(0,9).text()=='ymin / SW-Y → +Y'
   w.openems_wall_side.setCurrentText('xmax')
   openems_ui.save(w)
-  assert w.saved_values['openems_boxwall']==dict(config(),reference_plane_setback=13.485)
+  assert w.saved_values['openems_boxwall']=={'ports':{'1':dict(config(),reference_plane_setback=13.485)}}
   w.openems_boxwall_group.setChecked(False)
   openems_ui.load(w)
   assert w.openems_boxwall_group.isChecked()
@@ -126,3 +126,63 @@ def test_saved_geometry_preview_does_not_regenerate(tmp_path, monkeypatch):
   w.setPalaceMode();assert w.openems_saved_preview.isHidden()
  finally:
   w._script_dirty=False;w.close();module.saved_values.clear()
+
+
+def test_boxwall_editor_is_independent_per_port_and_disables_via_controls(monkeypatch):
+ from PySide6.QtWidgets import QApplication
+ from setupEM import setupEM as module,openems_ui
+ app=QApplication.instance() or QApplication([])
+ monkeypatch.setattr(module,'get_preference',lambda app,key,default=None:default)
+ module.saved_values.clear();w=module.MainWindow()
+ try:
+  w.setOpenEMSMode()
+  rows=[dict(portnumber=i,source_layernum=240+i,from_layername='M1',to_layername='M6',direction='Z') for i in (1,2)]
+  w.ports_tab.update_port_from_import(rows);table=w.ports_tab.portslist
+  table.selectRow(0);w.openems_boxwall_group.setChecked(True)
+  w.openems_signal.setCurrentText('M6');w.openems_return.setCurrentText('M1')
+  assert not w.ports_tab.from_box.isEnabled() and not w.ports_tab.to_box.isEnabled()
+  assert not w.ports_tab.direction_box.isEnabled()
+  assert 'ground' in w.ports_tab.from_label.text() and 'signal' in w.ports_tab.to_label.text()
+  table.selectRow(1)
+  assert not w.openems_boxwall_group.isChecked()
+  assert w.ports_tab.from_box.isEnabled() and w.ports_tab.to_box.isEnabled()
+  assert w.ports_tab.direction_box.isEnabled()
+  openems_ui.save(w)
+  assert set(w.saved_values['openems_boxwall']['ports'])=={'1'}
+  assert not table.isColumnHidden(6)  # Ordinary via direction remains visible in a mixed table.
+  assert table.item(0,14).text()=='Boxwall feed' and table.item(1,14).text()=='Via port'
+  w.openems_boxwall_group.setChecked(True);w.openems_wall_side.setCurrentText('ymin')
+  w.openems_signal.setCurrentText('M7');w.openems_return.setCurrentText('M2')
+  w.openems_feed_length.setValue(140);w.openems_feed_width.setValue(4)
+  w.openems_calibration_report.setPlainText('Last checked complete model')
+  table.selectRow(0)
+  assert w.openems_calibration_report.toPlainText()=='Last checked complete model'
+  assert w.openems_signal.currentText()=='M6' and w.openems_return.currentText()=='M1'
+  assert w.openems_wall_side.currentText()=='xmax' and w.openems_feed_length.value()==100
+  assert w.openems_feed_width.value()==0
+  w.openems_boxwall_group.setChecked(False)
+  openems_ui.save(w)
+  saved=w.saved_values['openems_boxwall']
+  assert set(saved['ports'])=={'2'} and saved['ports']['2']['side']=='ymin'
+  assert w.ports_tab.save_values()
+  assert module.simulation_ports.ports[0].target_layername is None
+  assert module.simulation_ports.ports[1].target_layername=='M7'
+  table.selectRow(1)
+  assert w.openems_signal.currentText()=='M7' and not w.ports_tab.from_box.isEnabled()
+  # Reading back config selects only this port; legacy shared files still migrate.
+  openems_ui.load(w)
+  assert w.openems_boxwall_group.isChecked() and w.openems_feed_width.value()==4
+  w.saved_values['openems_boxwall']=config();openems_ui.load(w);openems_ui.save(w)
+  assert set(w.saved_values['openems_boxwall']['ports'])=={'1','2'}
+ finally:
+  w._script_dirty=False;w.close();module.saved_values.clear()
+
+
+def test_per_port_export_preserves_mixed_ordinary_definitions():
+ cfg={'ports':{'1':config(),'2':dict(config(),side='ymin',signal_layer='M7',return_layer='M2')}}
+ text=openems_script_text(dict(openems_boxwall=cfg),ports())
+ assert "'ports': {'1':" in text
+ assert "if 'ports' not in feed_config:" in text
+ compile(text,'per_port.py','exec')
+ with pytest.raises(ValueError,match='Unknown boxwall port'):
+  openems_script_text(dict(openems_boxwall={'ports':{'3':config()}}),ports())

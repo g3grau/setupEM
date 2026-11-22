@@ -494,7 +494,7 @@ class LayoutPreviewWindow(QDialog):
     # stackup element for those to sync to.
     layerSelected = Signal(object)
 
-    def __init__(self, MainWindow, gds_override_path=None, title_suffix="",preview_settings=None,preview_markers=None,preview_stackup=None,preview_layers=None):
+    def __init__(self, MainWindow, gds_override_path=None, title_suffix="",preview_settings=None,preview_markers=None,preview_stackup=None,preview_layers=None,preview_layer_names=None):
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Layout Preview" + (f" - {title_suffix}" if title_suffix else ""))
@@ -509,6 +509,7 @@ class LayoutPreviewWindow(QDialog):
         self._preview_markers=preview_markers
         self._preview_stackup=preview_stackup
         self._preview_layers=preview_layers
+        self._preview_layer_names=preview_layer_names
 
         self.canvas = LayoutCanvas()
 
@@ -1194,6 +1195,14 @@ class LayoutPreviewWindow(QDialog):
         layernumbers.extend(marker_by_layernum.keys())
 
         gds_path_to_read = self._gds_override_path or saved_values["GdsFile"]
+        layer_names=self._preview_layer_names
+        if layer_names is None:
+            if __package__ in (None,''):
+                from pin_preparation import preview_layer_names
+            else:
+                from .pin_preparation import preview_layer_names
+            raw=getattr(self.MainWindow.file_tab,'raw_input',None)
+            layer_names=preview_layer_names(gds_path_to_read,raw.mapfile.text() if raw else '')
 
         # cheap (no flattening) pre-check before committing to the potentially
         # very slow read_gds() + scene-building work below - see
@@ -1288,12 +1297,17 @@ class LayoutPreviewWindow(QDialog):
                     name = metal.name
                 else:
                     color = QColor(DEFAULT_LAYER_COLOR)
-                    name = f"Layer {layernum}"
+                    name = layer_names.get(layernum,f"Layer {layernum}")
+                display_name=name
+                if metal is None and layernum in layer_names:
+                    # Drawing/pin streams can share a name across different
+                    # layer numbers. Keep their selection/visibility independent.
+                    name=f'{name} [{layernum}]'
                 self._layer_layernum_by_name[name] = layernum
 
                 group = _VisibilityGroup()
 
-                tooltip = f"{name} [{layernum}]"
+                tooltip = f"{display_name} [{layernum}]"
                 for poly in polys:
                     item = QGraphicsPolygonItem(self._polygon_points(poly))
                     item.setBrush(QBrush(color))

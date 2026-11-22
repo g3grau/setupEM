@@ -550,20 +550,22 @@ class PortsTab(QWidget):
 
 
         self.viaport_layout =  QHBoxLayout()
-        self.from_label = QLabel("Via port from layer")
+        self.from_label = QLabel("Via port from layer (ground)")
         self.viaport_layout.addWidget(self.from_label)
         self.from_label.setFixedWidth(left_label_width)
         self.from_box = QComboBox()
         self.from_box.setFixedWidth(150)
         self.from_box.setStyleSheet(COMBO_STYLE_REQUIRED)
         self.from_box.addItems(["XML stackup missing"])
+        self.from_box.setToolTip('Typically the ground/reference conductor. The direction sign sets excitation polarity.')
         self.viaport_layout.addWidget(self.from_box)
-        self.to_label = QLabel(" to layer")
+        self.to_label = QLabel(" to layer (signal)")
         self.viaport_layout.addWidget(self.to_label)
         # label2.setFixedWidth(200)
         self.to_box = QComboBox()
         self.to_box.setFixedWidth(150)
         self.to_box.setStyleSheet(COMBO_STYLE_REQUIRED)
+        self.to_box.setToolTip('Typically the signal conductor. Z / -Z selects excitation polarity.')
         self.viaport_layout.addWidget(self.to_box)
 
 
@@ -692,9 +694,14 @@ class PortsTab(QWidget):
         self.setLayout(self.main_layout)
 
 
+        for box in (self.direction_box,self.target_box,self.from_box,self.to_box):
+            box.setStyleSheet(box.styleSheet()+'\nQComboBox:disabled { background-color: #ededed; color: #888; }')
         # callback when direction changed, so that we can show/hide layer choices
         def on_direction_changed(direction):
-            if "Z" in direction:
+            boxwall=self.MainWindow.OpenEMSMode and hasattr(self.MainWindow,'openems_boxwall_group') and self.MainWindow.openems_boxwall_group.isChecked()
+            for widget in (self.from_label,self.from_box,self.to_label,self.to_box,self.target_label,self.target_box):
+                widget.setEnabled(not boxwall)
+            if "Z" in direction or boxwall:
                 # hide target layer label and edit
                 self.target_label.hide()
                 self.target_box.hide()
@@ -713,6 +720,7 @@ class PortsTab(QWidget):
 
 
         self.direction_box.currentTextChanged.connect(on_direction_changed)
+        self._update_direction_controls=lambda:on_direction_changed(self.direction_box.currentText())
         self.direction_box.setCurrentIndex(2)
 
         # set this AFTER apply_port_values_to_table(), not earlier!
@@ -734,14 +742,21 @@ class PortsTab(QWidget):
             selected_row = selected_indexes[0].row()  # row of the first selected cell
             # "Z0", "Voltage", "Source layer", "Target layer", "From layer", "To layer","Direction"
 
-            if "Z" in self.direction_box.currentText():
+            feed=(openems_ui.port_feed_configs(self.MainWindow).get(str(selected_row+1))
+                  if self.MainWindow.OpenEMSMode else None)
+            if feed:
+                target_layer=feed['signal_layer'];from_layer=to_layer=''
+                direction={'xmax':'-X','xmin':'X','ymax':'-Y','ymin':'Y'}[feed['side']]
+            elif "Z" in self.direction_box.currentText():
                 target_layer = ""
                 from_layer = self.from_box.currentText()
                 to_layer = self.to_box.currentText()
+                direction=self.direction_box.currentText()
             else:
                 target_layer = self.target_box.currentText()
                 from_layer = ""
                 to_layer = ""
+                direction=self.direction_box.currentText()
 
             data = [self.impedance_edit.text(),
                     self.voltage_edit.text(),
@@ -749,7 +764,7 @@ class PortsTab(QWidget):
                     target_layer,
                     from_layer,
                     to_layer,
-                    self.direction_box.currentText()]
+                    direction]
 
             for col, value in enumerate(data):
                 self.portslist.setItem(selected_row, col, QTableWidgetItem(str(value)))
@@ -807,6 +822,10 @@ class PortsTab(QWidget):
                 # self.portslist.setItem(selected_row, col, QTableWidgetItem(str(value)))
                 self.portslist.setItem(selected_row, col, None)
             self.portslist.setItem(selected_row, 7, None)  # clear any "(missing in layout)" note too
+            if hasattr(self.MainWindow,'_openems_port_feeds'):
+                entries=openems_ui.port_feed_configs(self.MainWindow);entries.pop(str(selected_row+1),None)
+                self.MainWindow._openems_port_feeds=entries;self.MainWindow._openems_legacy_feed=None
+                openems_ui.select_port_feed(self.MainWindow,selected_row)
             self.refresh_missing_layer_annotations()
 
 
@@ -819,6 +838,7 @@ class PortsTab(QWidget):
                 # assume that we have an line that is not empty, so get port details from this line
                 if item.text() != "":
                     self.get_port_values_from_table()
+            if hasattr(self.MainWindow,'openems_boxwall_group'):openems_ui.select_port_feed(self.MainWindow,selected_row)
             self._update_direction_lock(selected_row)
             if item is None:
                 suggestion = self._suggest_source_layer()
@@ -904,6 +924,10 @@ class PortsTab(QWidget):
 
     def _update_direction_lock(self, row):
         """a port on a port wall points into the layout: its direction is set by the side, not by the user"""
+        if self.MainWindow.OpenEMSMode and hasattr(self.MainWindow,'openems_boxwall_group') and self.MainWindow.openems_boxwall_group.isChecked():
+            self.direction_box.setEnabled(False)
+            self.direction_note.setText(' Boxwall feed: direction follows this port’s outward wall side')
+            return
         side = self._wall_of_port.get(row + 1)
         self.direction_box.setEnabled(side is None)
         if side and row + 1 in self._converted_port:
@@ -1250,6 +1274,11 @@ class PortsTab(QWidget):
                         from_name = self.portslist.item(row, 4).text()
                         to_name = self.portslist.item(row, 5).text()
                         direction = self.portslist.item(row, 6).text()
+                        feed=(openems_ui.port_feed_configs(self.MainWindow).get(str(portnumber))
+                              if self.MainWindow.OpenEMSMode else None)
+                        if feed:
+                            target_name=feed['signal_layer'];from_name=to_name=''
+                            direction={'xmax':'-X','xmin':'X','ymax':'-Y','ymin':'Y'}[feed['side']]
                     except Exception:
                         QMessageBox.warning(self, "Error", "Invalid input for port " + str(portnumber))
                         return False

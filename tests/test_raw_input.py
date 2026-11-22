@@ -104,3 +104,39 @@ def test_failed_worker_keeps_simulation_input_and_cleans_owned_job_directory(win
     assert raw.run_button.isEnabled() and 'failed or stopped' in raw.status.text()
     assert window.file_tab.gds_file_edit.text()==previous and not (tmp_path/'cleaned.gds').exists()
     assert not list(tmp_path.glob('.setupem_raw_job_*'))
+
+
+def test_raw_prompt_is_not_saved_as_a_filename(window):
+    raw=window.file_tab.raw_input
+    assert raw.source.placeholderText()=='Please choose a file ===>'
+    assert raw.source.text()=='' and raw.state()['source']==''
+    assert not raw.preview_buttons['raw'].isEnabled()
+    assert 'raw_input' not in window.native_config_extra_struct()
+
+
+def test_preview_names_unmapped_stackup_layers_from_stream_map(window,raw_layout):
+    import gdstk
+    from PySide6.QtWidgets import QLabel
+    source,options=raw_layout;raw=window.file_tab.raw_input
+    window.file_tab.set_XML_file(options['stackup'])
+    raw.source.setText(str(source));raw.mapfile.setText(options['mapfile'])
+    lib=gdstk.read_gds(source)
+    cell=next(c for c in lib.cells if c.name=='CADENCE_TOP')
+    cell.add(gdstk.rectangle((0,40),(2,42),layer=998));lib.write_gds(source)
+    with Path(options['mapfile']).open('a') as stream:
+        stream.write('\nMetal1 pin 998 0\nMetal1 pin 999 0\n')
+    previous=dict(window.saved_values)
+    raw.preview('raw')
+    assert 'Previewing' in raw.status.text(),raw.status.text()
+    view=raw._preview_windows[-1]
+    labels=[label.text() for label in view.findChildren(QLabel)]
+    assert 'Metal1 [8]' in labels  # Physical stackup name is retained.
+    assert 'Metal1 [998]' in labels and 'Metal1 [999]' in labels
+    assert view._layer_layernum_by_name['Metal1']==8
+    assert view._layer_layernum_by_name['Metal1 [998]']==998
+    assert view._layer_layernum_by_name['Metal1 [999]']==999
+    assert window.saved_values==previous
+    # This preview is a snapshot; editing the map doesn't relabel an open view.
+    raw.mapfile.clear();view.refresh()
+    assert 'Metal1 [999]' in [label.text() for label in view.findChildren(QLabel)]
+    view.close()

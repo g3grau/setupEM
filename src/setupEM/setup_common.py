@@ -5313,6 +5313,8 @@ class MainWindowBase(QMainWindow):
                     "numfreq": "numfreq",
                     "numThreads": "numThreads",
                     "openems_execution": "openems_execution",
+                    "openems_boxwall": "openems_boxwall",
+                    "openems_aircut": "openems_aircut",
                     "energy_limit": "energy_limit",
                     "Boundaries": "openems_boundaries",
                     "engine": "openems_engine",
